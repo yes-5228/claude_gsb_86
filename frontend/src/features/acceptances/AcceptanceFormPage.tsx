@@ -229,8 +229,8 @@ export function AcceptanceFormPage() {
               <p>
                 任务 {selectedTask.code} · 管段 {selectedTask.segment?.code ?? '—'}{' '}
                 {selectedTask.segment?.name ?? ''} · 班组 {selectedTask.teamName || '—'} · 清淤记录{' '}
-                {selectedTask.recordTotals?.recordCount ?? 0} 条 · 清淤量{' '}
-                {selectedTask.recordTotals?.sludgeVolumeM3 ?? 0} m³
+                {selectedTask.recordTotals?.recordCount ?? 0} 条 · 折算干重{' '}
+                {selectedTask.recordTotals?.convertedDryT ?? 0} 吨（统一口径）
               </p>
             </div>
           </>

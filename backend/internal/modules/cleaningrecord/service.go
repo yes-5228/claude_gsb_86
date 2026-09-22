@@ -11,6 +11,7 @@ import (
 
 	"github.com/drainage/desilting/internal/httpx"
 	"github.com/drainage/desilting/internal/modules/cleaningtask"
+	"github.com/drainage/desilting/internal/modules/conversion"
 	"github.com/drainage/desilting/internal/shared/date"
 	"github.com/drainage/desilting/internal/shared/option"
 	"github.com/drainage/desilting/internal/shared/refx"
@@ -22,15 +23,24 @@ type TaskGateway interface {
 	EnsureStarted(ctx context.Context, id uint) (*cleaningtask.CleaningTask, error)
 }
 
+// ConversionGateway 统一口径折算能力（由 conversion.Service 实现）。
+//
+// 清淤记录只依赖这一个按业务日期折算的方法，不直接依赖规则表，
+// 把「跨月补录按清淤日期当时生效规则折算」的规则集中收敛在换算模块。
+type ConversionGateway interface {
+	ResolveForRecord(ctx context.Context, rawWeightT float64, basis string, day date.Date) (conversion.Snapshot, error)
+}
+
 // Service 清淤记录业务逻辑。
 type Service struct {
-	repo  *Repository
-	tasks TaskGateway
+	repo        *Repository
+	tasks       TaskGateway
+	conversions ConversionGateway
 }
 
 // NewService 构造服务。
-func NewService(repo *Repository, tasks TaskGateway) *Service {
-	return &Service{repo: repo, tasks: tasks}
+func NewService(repo *Repository, tasks TaskGateway, conversions ConversionGateway) *Service {
+	return &Service{repo: repo, tasks: tasks, conversions: conversions}
 }
 
 // Create 录入清淤记录。首次录入时会把任务从"待开工"推进到"清淤中"。
@@ -45,6 +55,9 @@ func (s *Service) Create(ctx context.Context, req SaveRequest) (*CleaningRecord,
 
 	record := &CleaningRecord{}
 	apply(req, record)
+	if err := s.fillConversion(ctx, record); err != nil {
+		return nil, err
+	}
 
 	for attempt := 0; attempt < 5; attempt++ {
 		record.Code = s.nextCode(ctx, record.CleanedAt)
@@ -88,6 +101,9 @@ func (s *Service) Update(ctx context.Context, id uint, req SaveRequest) (*Cleani
 		return nil, err
 	}
 	apply(req, record)
+	if err := s.fillConversion(ctx, record); err != nil {
+		return nil, err
+	}
 	if err := s.repo.Save(ctx, record); err != nil {
 		return nil, httpx.WrapInternal("修改清淤记录失败", err)
 	}
@@ -200,6 +216,13 @@ func validate(req SaveRequest) error {
 	if req.CleanedAt.After(date.Today()) {
 		return httpx.Validation("清淤日期不能晚于今天")
 	}
+	basis := strings.TrimSpace(req.WeightBasis)
+	if !conversion.HasBasis(basis) {
+		return httpx.Validation("计量口径只能是湿重或干重")
+	}
+	if req.RawWeightT <= 0 {
+		return httpx.Validation("清淤量原始重量需大于 0（吨）")
+	}
 	method := strings.TrimSpace(req.Method)
 	if method != "" && !option.Has(cleaningtask.MethodOptions(), method) {
 		return httpx.Validation(fmt.Sprintf("清淤方式只能是：%s", option.Labels(cleaningtask.MethodOptions())))
@@ -219,6 +242,8 @@ func apply(req SaveRequest, target *CleaningRecord) {
 	target.CleanedAt = req.CleanedAt
 	target.LengthM = req.LengthM
 	target.SludgeVolumeM3 = req.SludgeVolumeM3
+	target.RawWeightT = req.RawWeightT
+	target.WeightBasis = strings.TrimSpace(req.WeightBasis)
 	target.WaterVolumeM3 = req.WaterVolumeM3
 	target.PersonnelCount = req.PersonnelCount
 	target.Method = strings.TrimSpace(req.Method)
@@ -229,6 +254,22 @@ func apply(req SaveRequest, target *CleaningRecord) {
 	target.ProblemFound = strings.TrimSpace(req.ProblemFound)
 	target.RecorderName = strings.TrimSpace(req.RecorderName)
 	target.Remark = strings.TrimSpace(req.Remark)
+}
+
+// fillConversion 按清淤日期当时生效的规则，把原始重量折算为统一口径干重并固化。
+//
+// 只写入折算相关列（规则快照、系数、折算干重），原始计量列不在此处理。
+// 这样无论是当日录入还是跨月补录，都按业务日期命中规则，口径一致。
+func (s *Service) fillConversion(ctx context.Context, record *CleaningRecord) error {
+	snap, err := s.conversions.ResolveForRecord(ctx, record.RawWeightT, record.WeightBasis, record.CleanedAt)
+	if err != nil {
+		return err
+	}
+	record.ConversionRuleID = snap.RuleID
+	record.ConversionRuleCode = snap.RuleCode
+	record.ConversionFactor = snap.Factor
+	record.ConvertedDryT = snap.DryT
+	return nil
 }
 
 // nextCode 生成形如 QJ20260914-0001 的记录编号。

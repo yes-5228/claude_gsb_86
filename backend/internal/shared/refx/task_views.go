@@ -11,8 +11,10 @@ import (
 
 // RecordTotals 某个任务的清淤记录汇总。
 type RecordTotals struct {
-	RecordCount     int64     `json:"recordCount"`
-	SludgeVolumeM3  float64   `json:"sludgeVolumeM3"`
+	RecordCount    int64   `json:"recordCount"`
+	SludgeVolumeM3 float64 `json:"sludgeVolumeM3"`
+	// ConvertedDryT 统一口径（干重吨）合计，按 6 位精度从叶子列 SUM，中间不取整。
+	ConvertedDryT   float64   `json:"convertedDryT"`
 	CleanedLengthM  float64   `json:"cleanedLengthM"`
 	LatestCleanedAt date.Date `json:"latestCleanedAt"`
 }
@@ -37,11 +39,13 @@ func TotalsByTaskID(ctx context.Context, db *gorm.DB, taskID uint) (RecordTotals
 	err := db.WithContext(ctx).Table(TableCleaningRecords).
 		Select(`COUNT(*) AS record_count,
 			COALESCE(SUM(sludge_volume_m3), 0) AS sludge_volume_m3,
+			COALESCE(SUM(converted_dry_t), 0) AS converted_dry_t,
 			COALESCE(SUM(length_m), 0) AS cleaned_length_m,
 			MAX(cleaned_at) AS latest_cleaned_at`).
 		Where("task_id = ?", taskID).
 		Scan(&totals).Error
 	totals.SludgeVolumeM3 = num.Round2(totals.SludgeVolumeM3)
+	totals.ConvertedDryT = num.Round6(totals.ConvertedDryT)
 	totals.CleanedLengthM = num.Round2(totals.CleanedLengthM)
 	return totals, err
 }
@@ -56,6 +60,7 @@ func TotalsByTaskIDs(ctx context.Context, db *gorm.DB, taskIDs []uint) (map[uint
 		TaskID          uint
 		RecordCount     int64
 		SludgeVolumeM3  float64
+		ConvertedDryT   float64
 		CleanedLengthM  float64
 		LatestCleanedAt *date.Date
 	}
@@ -63,6 +68,7 @@ func TotalsByTaskIDs(ctx context.Context, db *gorm.DB, taskIDs []uint) (map[uint
 	err := db.WithContext(ctx).Table(TableCleaningRecords).
 		Select(`task_id, COUNT(*) AS record_count,
 			COALESCE(SUM(sludge_volume_m3), 0) AS sludge_volume_m3,
+			COALESCE(SUM(converted_dry_t), 0) AS converted_dry_t,
 			COALESCE(SUM(length_m), 0) AS cleaned_length_m,
 			MAX(cleaned_at) AS latest_cleaned_at`).
 		Where("task_id IN ?", taskIDs).
@@ -75,6 +81,7 @@ func TotalsByTaskIDs(ctx context.Context, db *gorm.DB, taskIDs []uint) (map[uint
 		totals := RecordTotals{
 			RecordCount:    item.RecordCount,
 			SludgeVolumeM3: num.Round2(item.SludgeVolumeM3),
+			ConvertedDryT:  num.Round6(item.ConvertedDryT),
 			CleanedLengthM: num.Round2(item.CleanedLengthM),
 		}
 		if item.LatestCleanedAt != nil {

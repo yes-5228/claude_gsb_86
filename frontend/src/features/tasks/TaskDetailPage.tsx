@@ -15,13 +15,16 @@ import { StatusTag } from '../../components/StatusTag';
 import { StateBlock } from '../../components/StateBlock';
 import { useToast } from '../../components/Toast';
 import { useAsync } from '../../hooks/useAsync';
+import { useMeta } from '../../providers/MetaProvider';
 import type { RecordListItem, TaskAction } from '../../types/domain';
-import { formatDate, formatDateTime, formatLength, formatNumber, formatVolume } from '../../utils/format';
+import { formatDate, formatDateTime, formatLength, formatNumber, formatWeight } from '../../utils/format';
+import { optionLabel } from '../../utils/options';
 
 export function TaskDetailPage() {
   const params = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+  const { enums } = useMeta();
   const id = Number(params.id ?? '0');
 
   const detail = useAsync(
@@ -101,11 +104,23 @@ export function TaskDetailPage() {
     { key: 'weather', title: '天气', width: '90px', render: (row) => <StatusTag list="weathers" value={row.weather} /> },
     { key: 'lengthM', title: '清淤长度', width: '110px', align: 'right', render: (row) => formatLength(row.lengthM) },
     {
-      key: 'sludgeVolumeM3',
-      title: '清淤量',
+      key: 'rawWeightT',
+      title: '原始清淤量',
+      width: '150px',
+      align: 'right',
+      render: (row) => (
+        <>
+          <span className="cell-num">{formatWeight(row.rawWeightT)}</span>
+          <span className="cell-sub">{optionLabel(enums?.weightBases, row.weightBasis)}</span>
+        </>
+      )
+    },
+    {
+      key: 'convertedDryT',
+      title: '折算干重',
       width: '110px',
       align: 'right',
-      render: (row) => formatVolume(row.sludgeVolumeM3)
+      render: (row) => formatWeight(row.convertedDryT)
     },
     { key: 'personnelCount', title: '作业人数', width: '90px', align: 'right', render: (row) => formatNumber(row.personnelCount, 0) },
     { key: 'recorderName', title: '记录人', width: '100px', render: (row) => row.recorderName || '—' }
@@ -209,7 +224,12 @@ export function TaskDetailPage() {
             >
               <div className="stat-grid">
                 <StatCard label="记录条数" value={formatNumber(totals?.recordCount ?? 0, 0)} tone="primary" />
-                <StatCard label="累计清淤量" value={formatVolume(totals?.sludgeVolumeM3 ?? 0)} />
+                <StatCard
+                  label="累计折算干重"
+                  value={formatWeight(totals?.convertedDryT ?? 0)}
+                  hint="统一口径（干重吨），与管段/片区/看板同源"
+                  tone="primary"
+                />
                 <StatCard label="累计清淤长度" value={formatLength(totals?.cleanedLengthM ?? 0)} />
                 <StatCard label="最近清淤日期" value={formatDate(totals?.latestCleanedAt)} />
               </div>

@@ -11,12 +11,15 @@ import { StatusTag } from '../../components/StatusTag';
 import { StateBlock } from '../../components/StateBlock';
 import { useToast } from '../../components/Toast';
 import { useAsync } from '../../hooks/useAsync';
-import { formatDate, formatDateTime, formatLength, formatNumber, formatVolume } from '../../utils/format';
+import { useMeta } from '../../providers/MetaProvider';
+import { formatDate, formatDateTime, formatFactor, formatLength, formatNumber, formatVolume, formatWeight } from '../../utils/format';
+import { optionLabel } from '../../utils/options';
 
 export function RecordDetailPage() {
   const params = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+  const { enums } = useMeta();
   const id = Number(params.id ?? '0');
 
   const detail = useAsync(
@@ -80,6 +83,45 @@ export function RecordDetailPage() {
               </p>
             </div>
 
+            <SectionCard title="清淤量与折算口径" subtitle="原始计量值长期保留，统一口径折算干重用于看板与报表合计">
+              <InfoList
+                items={[
+                  {
+                    label: '原始计量值',
+                    value: (
+                      <>
+                        <strong>{formatWeight(record.rawWeightT)}</strong>
+                        <span className="cell-sub">
+                          {' '}
+                          （{optionLabel(enums?.weightBases, record.weightBasis)}）
+                        </span>
+                      </>
+                    )
+                  },
+                  {
+                    label: '折算干重（统一口径）',
+                    value: <strong>{formatWeight(record.convertedDryT)}</strong>
+                  },
+                  {
+                    label: '折算系数',
+                    value: formatFactor(record.conversionFactor)
+                  },
+                  {
+                    label: '命中规则',
+                    value:
+                      record.weightBasis === 'dry'
+                        ? '干重口径，系数恒为 1'
+                        : record.conversionRuleCode || '—'
+                  },
+                  { label: '清淤方量', value: formatVolume(record.sludgeVolumeM3) }
+                ]}
+              />
+              <p className="form-note">
+                折算依据：干重（吨）= 原始重量（吨）× 折算系数；湿重记录按清淤日期当天生效的规则折算，
+                干重记录系数恒为 1。该折算结果与任务、管段、片区、看板合计同源。
+              </p>
+            </SectionCard>
+
             <SectionCard title="现场数据" subtitle={`录入于 ${formatDateTime(record.createdAt)}，最近更新 ${formatDateTime(record.updatedAt)}`}>
               <InfoList
                 items={[
@@ -87,7 +129,6 @@ export function RecordDetailPage() {
                   { label: '清淤日期', value: formatDate(record.cleanedAt) },
                   { label: '清淤方式', value: <StatusTag list="cleaningMethods" value={record.method} /> },
                   { label: '清淤长度', value: formatLength(record.lengthM) },
-                  { label: '清淤量', value: formatVolume(record.sludgeVolumeM3) },
                   { label: '用水量', value: formatVolume(record.waterVolumeM3) },
                   { label: '作业人数', value: `${formatNumber(record.personnelCount, 0)} 人` },
                   { label: '天气', value: <StatusTag list="weathers" value={record.weather} /> },

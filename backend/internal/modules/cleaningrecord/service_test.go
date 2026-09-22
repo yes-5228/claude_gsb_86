@@ -7,6 +7,7 @@ import (
 	"github.com/drainage/desilting/internal/httpx"
 	"github.com/drainage/desilting/internal/modules/cleaningrecord"
 	"github.com/drainage/desilting/internal/modules/cleaningtask"
+	"github.com/drainage/desilting/internal/modules/conversion"
 	"github.com/drainage/desilting/internal/shared/date"
 	"github.com/drainage/desilting/internal/testsupport"
 )
@@ -17,6 +18,8 @@ func recordRequest(taskID uint) cleaningrecord.SaveRequest {
 		CleanedAt:      date.Today().AddDays(-1),
 		LengthM:        80,
 		SludgeVolumeM3: 12.5,
+		RawWeightT:     17.5,
+		WeightBasis:    conversion.BasisWet,
 		WaterVolumeM3:  40,
 		PersonnelCount: 6,
 		Method:         cleaningtask.MethodHighPressure,

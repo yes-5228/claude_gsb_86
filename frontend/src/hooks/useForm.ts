@@ -8,6 +8,7 @@ export interface FormController<T extends object> {
   values: T;
   errors: FormErrors<T>;
   setValue: <K extends keyof T>(key: K, value: T[K]) => void;
+  setErrors: (errors: FormErrors<T>) => void;
   reset: (next: T) => void;
   submitting: boolean;
   serverError: string;
@@ -50,5 +51,5 @@ export function useForm<T extends object>(initial: T): FormController<T> {
     [values]
   );
 
-  return { values, errors, setValue, reset, submitting, serverError, handleSubmit };
+  return { values, errors, setValue, setErrors, reset, submitting, serverError, handleSubmit };
 }

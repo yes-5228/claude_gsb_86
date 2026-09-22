@@ -13,7 +13,8 @@ import { useToast } from '../../components/Toast';
 import { useAsync } from '../../hooks/useAsync';
 import { useMeta } from '../../providers/MetaProvider';
 import type { RecordListItem } from '../../types/domain';
-import { formatDate, formatLength, formatNumber, formatVolume } from '../../utils/format';
+import { formatDate, formatLength, formatNumber, formatVolume, formatWeight } from '../../utils/format';
+import { optionLabel } from '../../utils/options';
 
 const PAGE_SIZE = 10;
 
@@ -134,16 +135,30 @@ export function RecordListPage() {
     { key: 'weather', title: '天气', width: '90px', render: (row) => <StatusTag list="weathers" value={row.weather} /> },
     { key: 'lengthM', title: '清淤长度', width: '110px', align: 'right', render: (row) => formatLength(row.lengthM) },
     {
-      key: 'sludgeVolumeM3',
-      title: '清淤量 / 用水量',
-      width: '140px',
+      key: 'sludge',
+      title: '原始清淤量',
+      width: '150px',
       align: 'right',
       render: (row) => (
         <>
-          <span className="cell-num">{formatVolume(row.sludgeVolumeM3)}</span>
-          <span className="cell-sub">用水 {formatVolume(row.waterVolumeM3)}</span>
+          <span className="cell-num">{formatWeight(row.rawWeightT)}</span>
+          <span className="cell-sub">{optionLabel(enums?.weightBases, row.weightBasis)}</span>
         </>
       )
+    },
+    {
+      key: 'convertedDryT',
+      title: '折算干重',
+      width: '120px',
+      align: 'right',
+      render: (row) => <span className="cell-num">{formatWeight(row.convertedDryT)}</span>
+    },
+    {
+      key: 'waterVolumeM3',
+      title: '用水量',
+      width: '100px',
+      align: 'right',
+      render: (row) => formatVolume(row.waterVolumeM3)
     },
     {
       key: 'personnelCount',

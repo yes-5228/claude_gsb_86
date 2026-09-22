@@ -12,6 +12,7 @@ import (
 	"github.com/drainage/desilting/internal/modules/acceptance"
 	"github.com/drainage/desilting/internal/modules/cleaningrecord"
 	"github.com/drainage/desilting/internal/modules/cleaningtask"
+	"github.com/drainage/desilting/internal/modules/conversion"
 	"github.com/drainage/desilting/internal/modules/dashboard"
 	"github.com/drainage/desilting/internal/modules/meta"
 	"github.com/drainage/desilting/internal/modules/pipesegment"
@@ -39,7 +40,8 @@ func Setup(app *fiber.App, db *gorm.DB, cfg *config.Config) {
 
 	segmentService := pipesegment.Register(api, db)
 	taskService := cleaningtask.Register(api, db, segmentService)
-	recordService := cleaningrecord.Register(api, db, taskService)
+	conversionService := conversion.Register(api, db)
+	recordService := cleaningrecord.Register(api, db, taskService, conversionService)
 	acceptance.Register(api, db, taskService, segmentService, recordService)
-	dashboard.Register(api, db)
+	dashboard.Register(api, db, conversionService)
 }

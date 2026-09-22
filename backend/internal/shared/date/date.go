@@ -96,6 +96,15 @@ func (d Date) After(other Date) bool {
 	return d.Time.After(other.Time)
 }
 
+// QueryValue 返回用于数据库日期列比较的取值。
+//
+// SQLite 驱动把 date 列按 "YYYY-MM-DD" 文本存储，若直接传入带时分秒、时区的
+// time.Time，字符串比较会失配（例如查不到历史区间记录）。统一用纯日期文本，
+// PostgreSQL 的 date 列也能正确隐式转换。
+func (d Date) QueryValue() string {
+	return d.Time.Format(Layout)
+}
+
 func (d Date) MarshalJSON() ([]byte, error) {
 	if d.IsZero() {
 		return []byte("null"), nil

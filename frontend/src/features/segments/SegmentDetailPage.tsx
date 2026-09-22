@@ -13,7 +13,7 @@ import { StateBlock } from '../../components/StateBlock';
 import { useToast } from '../../components/Toast';
 import { useAsync } from '../../hooks/useAsync';
 import type { SegmentHistoryItem, TaskRef } from '../../types/domain';
-import { formatDate, formatDateTime, formatLength, formatNumber, formatVolume } from '../../utils/format';
+import { formatDate, formatDateTime, formatLength, formatNumber, formatWeight } from '../../utils/format';
 import { useState } from 'react';
 
 const taskColumns: Column<TaskRef>[] = [
@@ -40,7 +40,7 @@ const taskColumns: Column<TaskRef>[] = [
     render: (row) => `${formatDate(row.planStartDate)} ~ ${formatDate(row.planEndDate)}`
   },
   { key: 'recordCount', title: '记录数', width: '80px', align: 'right', render: (row) => formatNumber(row.recordCount, 0) },
-  { key: 'sludge', title: '清淤量', width: '110px', align: 'right', render: (row) => formatVolume(row.sludgeVolumeM3) }
+  { key: 'sludge', title: '折算干重', width: '120px', align: 'right', render: (row) => formatWeight(row.convertedDryT) }
 ];
 
 export function SegmentDetailPage() {
@@ -174,8 +174,8 @@ export function SegmentDetailPage() {
                         </div>
                         <p className="timeline-meta">
                           计划 {formatDate(item.planStartDate)} ~ {formatDate(item.planEndDate)} · 班组{' '}
-                          {item.teamName || '—'} · 清淤记录 {item.recordCount} 条 · 清淤量{' '}
-                          {formatVolume(item.sludgeVolumeM3)} · 清淤长度 {formatLength(item.cleanedLengthM)}
+                          {item.teamName || '—'} · 清淤记录 {item.recordCount} 条 · 折算干重{' '}
+                          {formatWeight(item.convertedDryT)} · 清淤长度 {formatLength(item.cleanedLengthM)}
                         </p>
                         <p className="timeline-meta">验收日期：{formatDate(item.acceptedAt)}</p>
                       </li>

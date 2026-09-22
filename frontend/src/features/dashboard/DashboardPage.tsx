@@ -9,7 +9,7 @@ import { StateBlock } from '../../components/StateBlock';
 import { useAsync } from '../../hooks/useAsync';
 import { useMeta } from '../../providers/MetaProvider';
 import type { DistrictStat, PendingAcceptanceItem, RecentRecordItem } from '../../types/domain';
-import { formatDate, formatLength, formatNumber, formatPercent, formatVolume } from '../../utils/format';
+import { formatDate, formatFactor, formatLength, formatNumber, formatPercent, formatWeight } from '../../utils/format';
 import { optionLabel } from '../../utils/options';
 
 interface BarItem {
@@ -74,24 +74,44 @@ const pendingColumns: Column<PendingAcceptanceItem>[] = [
   }
 ];
 
-const recentColumns: Column<RecentRecordItem>[] = [
-  { key: 'code', title: '记录编号', width: '140px', render: (row) => <span className="cell-main">{row.code}</span> },
-  { key: 'cleanedAt', title: '清淤日期', width: '110px', render: (row) => formatDate(row.cleanedAt) },
-  {
-    key: 'task',
-    title: '所属任务与管段',
-    render: (row) => (
-      <>
-        <span>{row.taskTitle}</span>
-        <span className="cell-sub">
-          {row.segmentCode} · {row.segmentName}
-        </span>
-      </>
-    )
-  },
-  { key: 'lengthM', title: '清淤长度', width: '110px', align: 'right', render: (row) => formatLength(row.lengthM) },
-  { key: 'sludgeVolumeM3', title: '清淤量', width: '110px', align: 'right', render: (row) => formatVolume(row.sludgeVolumeM3) }
-];
+function buildRecentColumns(weightLabel: (value: string) => string): Column<RecentRecordItem>[] {
+  return [
+    { key: 'code', title: '记录编号', width: '140px', render: (row) => <span className="cell-main">{row.code}</span> },
+    { key: 'cleanedAt', title: '清淤日期', width: '110px', render: (row) => formatDate(row.cleanedAt) },
+    {
+      key: 'task',
+      title: '所属任务与管段',
+      render: (row) => (
+        <>
+          <span>{row.taskTitle}</span>
+          <span className="cell-sub">
+            {row.segmentCode} · {row.segmentName}
+          </span>
+        </>
+      )
+    },
+    { key: 'lengthM', title: '清淤长度', width: '110px', align: 'right', render: (row) => formatLength(row.lengthM) },
+    {
+      key: 'rawWeightT',
+      title: '原始清淤量',
+      width: '140px',
+      align: 'right',
+      render: (row) => (
+        <>
+          <span className="cell-num">{formatWeight(row.rawWeightT)}</span>
+          <span className="cell-sub">{weightLabel(row.weightBasis)}</span>
+        </>
+      )
+    },
+    {
+      key: 'convertedDryT',
+      title: '折算干重',
+      width: '110px',
+      align: 'right',
+      render: (row) => <span className="cell-num">{formatWeight(row.convertedDryT)}</span>
+    }
+  ];
+}
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -120,7 +140,7 @@ export function DashboardPage() {
     { key: 'segmentCount', title: '管段', align: 'right', render: (row) => formatNumber(row.segmentCount, 0) },
     { key: 'segmentLengthM', title: '总长', align: 'right', render: (row) => formatLength(row.segmentLengthM) },
     { key: 'taskCount', title: '任务', align: 'right', render: (row) => formatNumber(row.taskCount, 0) },
-    { key: 'sludgeVolumeM3', title: '清淤量', align: 'right', render: (row) => formatVolume(row.sludgeVolumeM3) },
+    { key: 'sludgeDryT', title: '折算干重', align: 'right', render: (row) => formatWeight(row.sludgeDryT) },
     { key: 'lastCleanedAt', title: '最近清淤', align: 'right', render: (row) => formatDate(row.lastCleanedAt) }
   ];
 
@@ -175,8 +195,16 @@ export function DashboardPage() {
             hint={`累计清淤长度 ${formatLength(data?.cleanedLengthM ?? 0)}`}
             onClick={() => navigate('/records')}
           />
-          <StatCard label="累计清淤量" value={formatVolume(data?.sludgeTotalM3 ?? 0)} hint="按清淤记录汇总" />
-          <StatCard label="本月清淤量" value={formatVolume(data?.sludgeThisMonthM3 ?? 0)} hint="当月清淤日期口径" />
+          <StatCard
+            label="累计清淤量（干重）"
+            value={formatWeight(data?.sludgeTotalDryT ?? 0)}
+            hint={data?.caliber ? `统一口径：${data.caliber.unit}` : '统一折算为干重（吨）'}
+          />
+          <StatCard
+            label="本月清淤量（干重）"
+            value={formatWeight(data?.sludgeThisMonthDryT ?? 0)}
+            hint="当月清淤日期口径，与总量同源"
+          />
           <StatCard
             label="验收合格率"
             value={formatPercent(data?.acceptancePassRate ?? 0)}
@@ -223,7 +251,7 @@ export function DashboardPage() {
         >
           <div className="card-body-flush">
             <DataTable
-              columns={recentColumns}
+              columns={buildRecentColumns((value) => optionLabel(enums?.weightBases, value))}
               rows={recent.data ?? []}
               rowKey={(row) => row.recordId}
               loading={recent.loading}
@@ -250,8 +278,15 @@ export function DashboardPage() {
       </div>
 
       <p className="form-note">
-        说明：验收合格率 = 合格验收次数 / 验收总次数；未清淤管段指尚无「验收合格」记录的管段，
-        与管段台账中的最近清淤日期口径一致。字典标签取自后端 {optionLabel(enums?.acceptanceResults, 'pass')} 等统一枚举。
+        说明：清淤量统一折算为<strong>干重（吨）</strong>后再汇总；原始湿重/干重计量值在清淤记录中保留可查。
+        折算规则按清淤日期生效，跨月补录按当时规则折算，任务、管段、片区、看板四级合计同源于每条记录的折算干重，
+        各级均不预先取整。
+        {data?.caliber?.currentRule
+          ? ` 当前生效规则：${data.caliber.currentRule.code}（湿重→干重系数 ${formatFactor(
+              data.caliber.currentRule.wetToDryFactor
+            )}，自 ${formatDate(data.caliber.currentRule.effectiveFrom)} 起生效）。`
+          : ''}
+        可在「换算规则」中查看历史版本与调整影响。
       </p>
     </div>
   );

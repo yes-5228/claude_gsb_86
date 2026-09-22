@@ -11,11 +11,17 @@ import (
 )
 
 // SaveRequest 新增或修改清淤记录的请求体。
+//
+// 只接收现场原始计量值（rawWeightT + weightBasis）；折算到统一口径的干重、
+// 命中的规则版本与系数一律由后端按清淤日期当时生效的规则计算，前端不能指定，
+// 以保证各级合计口径唯一、可追溯。
 type SaveRequest struct {
 	TaskID             uint      `json:"taskId" label:"关联任务" validate:"required"`
 	CleanedAt          date.Date `json:"cleanedAt" label:"清淤日期"`
 	LengthM            float64   `json:"lengthM" label:"清淤长度(m)" validate:"gt=0,lte=100000"`
-	SludgeVolumeM3     float64   `json:"sludgeVolumeM3" label:"清淤量(m³)" validate:"gt=0,lte=100000"`
+	SludgeVolumeM3     float64   `json:"sludgeVolumeM3" label:"清淤方量(m³)" validate:"gte=0,lte=100000"`
+	RawWeightT         float64   `json:"rawWeightT" label:"清淤量原始重量(吨)" validate:"gt=0,lte=100000"`
+	WeightBasis        string    `json:"weightBasis" label:"计量口径" validate:"required"`
 	WaterVolumeM3      float64   `json:"waterVolumeM3" label:"用水量(m³)" validate:"gte=0,lte=100000"`
 	PersonnelCount     int       `json:"personnelCount" label:"作业人数" validate:"gt=0,lte=500"`
 	Method             string    `json:"method" label:"清淤方式"`

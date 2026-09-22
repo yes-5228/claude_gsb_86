@@ -45,6 +45,7 @@ type TaskRef struct {
 	PlanEndDate    string  `json:"planEndDate"`
 	RecordCount    int64   `json:"recordCount"`
 	SludgeVolumeM3 float64 `json:"sludgeVolumeM3"`
+	ConvertedDryT  float64 `json:"convertedDryT"`
 }
 
 // HasTasksForSegment 管段是否已经被清淤任务引用。
@@ -111,9 +112,12 @@ func RecentTasksForSegment(ctx context.Context, db *gorm.DB, segmentID uint, lim
 		Select(`t.id, t.code, t.title, t.status, t.priority, t.team_name,
 			t.plan_start_date, t.plan_end_date,
 			COALESCE(r.record_count, 0) AS record_count,
-			COALESCE(r.sludge_volume, 0) AS sludge_volume_m3`).
+			COALESCE(r.sludge_volume, 0) AS sludge_volume_m3,
+			COALESCE(r.converted_dry, 0) AS converted_dry_t`).
 		Joins(`LEFT JOIN (
-			SELECT task_id, COUNT(*) AS record_count, SUM(sludge_volume_m3) AS sludge_volume
+			SELECT task_id, COUNT(*) AS record_count,
+				SUM(sludge_volume_m3) AS sludge_volume,
+				SUM(converted_dry_t) AS converted_dry
 			FROM `+TableCleaningRecords+` GROUP BY task_id
 		) AS r ON r.task_id = t.id`).
 		Where("t.pipe_segment_id = ?", segmentID).
@@ -122,6 +126,7 @@ func RecentTasksForSegment(ctx context.Context, db *gorm.DB, segmentID uint, lim
 		Scan(&refs).Error
 	for i := range refs {
 		refs[i].SludgeVolumeM3 = num.Round2(refs[i].SludgeVolumeM3)
+		refs[i].ConvertedDryT = num.Round6(refs[i].ConvertedDryT)
 	}
 	return refs, err
 }

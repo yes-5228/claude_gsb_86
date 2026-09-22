@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/drainage/desilting/internal/modules/acceptance"
 	"github.com/drainage/desilting/internal/modules/cleaningrecord"
 	"github.com/drainage/desilting/internal/modules/cleaningtask"
+	"github.com/drainage/desilting/internal/modules/conversion"
 	"github.com/drainage/desilting/internal/modules/pipesegment"
 	"github.com/drainage/desilting/internal/shared/date"
 )
@@ -18,6 +20,10 @@ import (
 // 只在管段台账为空时执行，因此重复启动不会产生重复数据。
 // 演示数据覆盖了全部任务状态：待开工、清淤中、待验收、已验收、已取消，
 // 以及"验收需整改 -> 整改完成待复验"的中间态。
+//
+// 换算规则同样演示两段生效区间：早期按湿重 55% 折算，最近一次规则调整后
+// 按湿重 65% 折算；并保留一条落在旧规则期的历史任务，直观体现
+// 「跨月补录按当时规则折算、调整规则只影响生效区间内既有统计」。
 func Seed(db *gorm.DB, logger *slog.Logger) error {
 	var segmentCount int64
 	if err := db.Model(&pipesegment.PipeSegment{}).Count(&segmentCount).Error; err != nil {
@@ -27,6 +33,12 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 		logger.Info("业务数据已存在，跳过演示数据初始化", "segments", segmentCount)
 		return nil
 	}
+
+	// 换算规则需先于清淤记录存在，记录折算时按清淤日期命中当时生效的版本。
+	if err := seedConversionRules(db); err != nil {
+		return err
+	}
+	ruleSvc := conversion.NewService(conversion.NewRepository(db))
 
 	return db.Transaction(func(tx *gorm.DB) error {
 		today := date.Today()
@@ -177,6 +189,16 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 				TeamName: "滨江专项作业队", LeaderName: "周敏", LeaderPhone: "0571-88456789",
 				Status: cleaningtask.StatusPending, Description: "汛期专项，采用管道机器人配合高压清洗",
 			},
+			{
+				Code:  "QX" + today.AddDays(-75).Format("20060102") + "-0001",
+				Title: "滨江大道雨水管上年度汛后清淤", PipeSegmentID: segmentID["PS-Y-2023-046"],
+				Priority: cleaningtask.PriorityNormal, Source: cleaningtask.SourcePlan, Method: cleaningtask.MethodHighPressure,
+				PlanStartDate: today.AddDays(-75), PlanEndDate: today.AddDays(-70),
+				TeamName: "滨江专项作业队", LeaderName: "周敏", LeaderPhone: "0571-88456789",
+				Status: cleaningtask.StatusAccepted, Description: "上年度汛后例行清淤，落在旧折算规则（55%）生效期内",
+				StartedAt: stamp(today.AddDays(-74), 8), FinishedAt: stamp(today.AddDays(-71), 16),
+				AcceptedAt: stamp(today.AddDays(-69), 10),
+			},
 		}
 		if err := tx.Create(&tasks).Error; err != nil {
 			return err
@@ -191,7 +213,7 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 			{
 				Code:   "QJ" + today.AddDays(-30).Format("20060102") + "-0001",
 				TaskID: taskID[tasks[0].Code], CleanedAt: today.AddDays(-30),
-				LengthM: 80, SludgeVolumeM3: 12.5, WaterVolumeM3: 45, PersonnelCount: 6,
+				LengthM: 80, SludgeVolumeM3: 12.5, RawWeightT: 18.2, WeightBasis: conversion.BasisWet, WaterVolumeM3: 45, PersonnelCount: 6,
 				Method: cleaningtask.MethodHighPressure, Equipment: "高压清洗车 2 台、吸污车 1 台", Weather: cleaningrecord.WeatherCloudy,
 				SludgeDisposalSite: "城东污泥消纳中心", SafetyMeasures: "设置围挡与警示标志，下井前气体检测并持续通风",
 				ProblemFound: "Y1-10 井段断面淤积约 30%", RecorderName: "李伟",
@@ -199,15 +221,15 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 			{
 				Code:   "QJ" + today.AddDays(-28).Format("20060102") + "-0001",
 				TaskID: taskID[tasks[0].Code], CleanedAt: today.AddDays(-28),
-				LengthM: 76.5, SludgeVolumeM3: 9.8, WaterVolumeM3: 38, PersonnelCount: 5,
+				LengthM: 76.5, SludgeVolumeM3: 9.8, RawWeightT: 14.0, WeightBasis: conversion.BasisDry, WaterVolumeM3: 38, PersonnelCount: 5,
 				Method: cleaningtask.MethodHighPressure, Equipment: "高压清洗车 2 台、吸污车 1 台", Weather: cleaningrecord.WeatherSunny,
 				SludgeDisposalSite: "城东污泥消纳中心", SafetyMeasures: "设置围挡与警示标志，全程气体检测",
-				RecorderName: "李伟", Remark: "复检后管内淤积厚度满足要求",
+				RecorderName: "李伟", Remark: "消纳点按干重计量，复检后管内淤积厚度满足要求",
 			},
 			{
 				Code:   "QJ" + today.AddDays(-21).Format("20060102") + "-0001",
 				TaskID: taskID[tasks[1].Code], CleanedAt: today.AddDays(-21),
-				LengthM: 320, SludgeVolumeM3: 42.6, WaterVolumeM3: 120, PersonnelCount: 8,
+				LengthM: 320, SludgeVolumeM3: 42.6, RawWeightT: 60.5, WeightBasis: conversion.BasisWet, WaterVolumeM3: 120, PersonnelCount: 8,
 				Method: cleaningtask.MethodWinch, Equipment: "绞车 2 台、吸污车 2 台", Weather: cleaningrecord.WeatherSunny,
 				SludgeDisposalSite: "城西污泥消纳中心", SafetyMeasures: "分段封堵导流，作业面设置安全通道",
 				ProblemFound: "W2-07 井段沉积砂石较多，清淤两遍后达到要求", RecorderName: "张强",
@@ -215,7 +237,7 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 			{
 				Code:   "QJ" + today.AddDays(-14).Format("20060102") + "-0001",
 				TaskID: taskID[tasks[2].Code], CleanedAt: today.AddDays(-14),
-				LengthM: 60, SludgeVolumeM3: 18.4, WaterVolumeM3: 36, PersonnelCount: 5,
+				LengthM: 60, SludgeVolumeM3: 18.4, RawWeightT: 26.0, WeightBasis: conversion.BasisWet, WaterVolumeM3: 36, PersonnelCount: 5,
 				Method: cleaningtask.MethodHighPressure, Equipment: "高压清洗车 1 台、吸污车 1 台", Weather: cleaningrecord.WeatherLightRain,
 				SludgeDisposalSite: "城西污泥消纳中心", SafetyMeasures: "雨天作业增设防滑措施，专人监护井口",
 				ProblemFound: "W2-12 检查井内清出建筑垃圾约 0.6 m³", RecorderName: "王芳",
@@ -223,7 +245,7 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 			{
 				Code:   "QJ" + today.AddDays(-12).Format("20060102") + "-0001",
 				TaskID: taskID[tasks[2].Code], CleanedAt: today.AddDays(-12),
-				LengthM: 60, SludgeVolumeM3: 15.2, WaterVolumeM3: 30, PersonnelCount: 5,
+				LengthM: 60, SludgeVolumeM3: 15.2, RawWeightT: 20.0, WeightBasis: conversion.BasisWet, WaterVolumeM3: 30, PersonnelCount: 5,
 				Method: cleaningtask.MethodHighPressure, Equipment: "高压清洗车 1 台、吸污车 1 台", Weather: cleaningrecord.WeatherOvercast,
 				SludgeDisposalSite: "城西污泥消纳中心", SafetyMeasures: "设置围挡与警示标志，全程气体检测",
 				RecorderName: "王芳", Remark: "支管过流能力恢复正常，等待验收",
@@ -231,7 +253,7 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 			{
 				Code:   "QJ" + today.AddDays(-3).Format("20060102") + "-0001",
 				TaskID: taskID[tasks[3].Code], CleanedAt: today.AddDays(-3),
-				LengthM: 110, SludgeVolumeM3: 26.3, WaterVolumeM3: 70, PersonnelCount: 7,
+				LengthM: 110, SludgeVolumeM3: 26.3, RawWeightT: 38.4, WeightBasis: conversion.BasisWet, WaterVolumeM3: 70, PersonnelCount: 7,
 				Method: cleaningtask.MethodGrab, Equipment: "抓斗车 1 台、吸污车 1 台、管道检测机器人 1 台", Weather: cleaningrecord.WeatherOvercast,
 				SludgeDisposalSite: "城南污泥消纳中心", SafetyMeasures: "井口设置三脚架与防坠装置，作业人员佩戴安全带",
 				ProblemFound: "H3-04 井段存在树根侵入，已切除并记录待复检", RecorderName: "陈刚",
@@ -239,11 +261,32 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 			{
 				Code:   "QJ" + today.AddDays(-17).Format("20060102") + "-0001",
 				TaskID: taskID[tasks[4].Code], CleanedAt: today.AddDays(-17),
-				LengthM: 88, SludgeVolumeM3: 7.6, WaterVolumeM3: 22, PersonnelCount: 4,
+				LengthM: 88, SludgeVolumeM3: 7.6, RawWeightT: 11.0, WeightBasis: conversion.BasisWet, WaterVolumeM3: 22, PersonnelCount: 4,
 				Method: cleaningtask.MethodManual, Equipment: "人工清掏工具、吸污车 1 台", Weather: cleaningrecord.WeatherCloudy,
 				SludgeDisposalSite: "城东污泥消纳中心", SafetyMeasures: "有限空间作业审批后实施，全程通风检测",
 				ProblemFound: "管段错口约 5 cm，清淤后仍有少量积水", RecorderName: "刘洋",
 			},
+			{
+				// 落在旧规则（55%）生效期内的历史湿重记录，折算结果与新规则期不同。
+				Code:   "QJ" + today.AddDays(-72).Format("20060102") + "-0001",
+				TaskID: taskID[tasks[8].Code], CleanedAt: today.AddDays(-72),
+				LengthM: 265, SludgeVolumeM3: 33.0, RawWeightT: 48.0, WeightBasis: conversion.BasisWet, WaterVolumeM3: 90, PersonnelCount: 8,
+				Method: cleaningtask.MethodHighPressure, Equipment: "高压清洗车 2 台、吸污车 2 台", Weather: cleaningrecord.WeatherSunny,
+				SludgeDisposalSite: "城东污泥消纳中心", SafetyMeasures: "设置围挡与警示标志，全程气体检测",
+				ProblemFound: "汛后管底沉积以泥沙为主", RecorderName: "周敏",
+			},
+		}
+
+		// 统一按清淤日期当时生效的规则折算并固化，保证演示数据与真实录入路径口径一致。
+		for i := range records {
+			snap, err := ruleSvc.ResolveForRecord(ctxBackground(), records[i].RawWeightT, records[i].WeightBasis, records[i].CleanedAt)
+			if err != nil {
+				return err
+			}
+			records[i].ConversionRuleID = snap.RuleID
+			records[i].ConversionRuleCode = snap.RuleCode
+			records[i].ConversionFactor = snap.Factor
+			records[i].ConvertedDryT = snap.DryT
 		}
 		if err := tx.Create(&records).Error; err != nil {
 			return err
@@ -294,8 +337,35 @@ func ptrDate(value date.Date) *date.Date {
 	return &value
 }
 
+// seedConversionRules 写入两段生效区间的湿重折算规则（直接落库，不触发重算日志）。
+func seedConversionRules(db *gorm.DB) error {
+	today := date.Today()
+	rules := []conversion.ConversionRule{
+		{
+			Code:           "HG-" + today.AddDays(-120).Format("20060102"),
+			Name:           "历史口径：市政污泥湿重折算干重（55%）",
+			EffectiveFrom:  today.AddDays(-120),
+			WetToDryFactor: 0.55,
+			Remark:         "依据早期养护经验，清淤污泥含杂水量较高，统一按湿重的 55% 折算干重。",
+		},
+		{
+			Code:           "HG-" + today.AddDays(-10).Format("20060102"),
+			Name:           "现行口径：市政污泥湿重折算干重（65%）",
+			EffectiveFrom:  today.AddDays(-10),
+			WetToDryFactor: 0.65,
+			Remark:         "结合近一年第三方检测结果调整，湿污泥平均含固率约 65%，自生效日起按新系数折算。",
+		},
+	}
+	return db.Create(&rules).Error
+}
+
 // stamp 把业务日期转成带具体时分的本地时间，用于 started_at / finished_at 等时间戳。
 func stamp(day date.Date, hour int) *time.Time {
 	moment := time.Date(day.Year(), day.Month(), day.Day(), hour, 0, 0, 0, time.Local)
 	return &moment
+}
+
+// ctxBackground 种子折算统一使用后台上下文。
+func ctxBackground() context.Context {
+	return context.Background()
 }

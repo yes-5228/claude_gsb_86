@@ -8,6 +8,7 @@ import (
 	"github.com/drainage/desilting/internal/modules/acceptance"
 	"github.com/drainage/desilting/internal/modules/cleaningrecord"
 	"github.com/drainage/desilting/internal/modules/cleaningtask"
+	"github.com/drainage/desilting/internal/modules/conversion"
 	"github.com/drainage/desilting/internal/modules/pipesegment"
 	"github.com/drainage/desilting/internal/shared/option"
 )
@@ -22,6 +23,7 @@ type Enums struct {
 	TaskSources       []option.Option `json:"taskSources"`
 	CleaningMethods   []option.Option `json:"cleaningMethods"`
 	Weathers          []option.Option `json:"weathers"`
+	WeightBases       []option.Option `json:"weightBases"`
 	AcceptanceResults []option.Option `json:"acceptanceResults"`
 }
 
@@ -38,6 +40,7 @@ func Register(router fiber.Router) {
 			TaskSources:       cleaningtask.SourceOptions(),
 			CleaningMethods:   cleaningtask.MethodOptions(),
 			Weathers:          cleaningrecord.WeatherOptions(),
+			WeightBases:       conversion.BasisOptions(),
 			AcceptanceResults: acceptance.ResultOptions(),
 		})
 	})

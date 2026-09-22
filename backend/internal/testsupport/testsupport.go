@@ -18,6 +18,7 @@ import (
 	"github.com/drainage/desilting/internal/modules/acceptance"
 	"github.com/drainage/desilting/internal/modules/cleaningrecord"
 	"github.com/drainage/desilting/internal/modules/cleaningtask"
+	"github.com/drainage/desilting/internal/modules/conversion"
 	"github.com/drainage/desilting/internal/modules/pipesegment"
 	"github.com/drainage/desilting/internal/shared/date"
 )
@@ -60,15 +61,36 @@ type Services struct {
 	Tasks       *cleaningtask.Service
 	Records     *cleaningrecord.Service
 	Acceptances *acceptance.Service
+	Conversions *conversion.Service
 }
 
-// NewServices 按生产环境的依赖顺序装配服务。
+// NewServices 按生产环境的依赖顺序装配服务，并写入一条默认可用的折算规则。
 func NewServices(db *gorm.DB) *Services {
 	segments := pipesegment.NewService(pipesegment.NewRepository(db))
 	tasks := cleaningtask.NewService(cleaningtask.NewRepository(db), segments)
-	records := cleaningrecord.NewService(cleaningrecord.NewRepository(db), tasks)
+	conversions := conversion.NewService(conversion.NewRepository(db))
+	records := cleaningrecord.NewService(cleaningrecord.NewRepository(db), tasks, conversions)
 	acceptances := acceptance.NewService(acceptance.NewRepository(db), tasks, segments, records)
-	return &Services{Segments: segments, Tasks: tasks, Records: records, Acceptances: acceptances}
+	svc := &Services{
+		Segments:    segments,
+		Tasks:       tasks,
+		Records:     records,
+		Acceptances: acceptances,
+		Conversions: conversions,
+	}
+	svc.seedDefaultRule()
+	return svc
+}
+
+// seedDefaultRule 写入一条很早生效的默认湿重折算规则（60%），保证记录可折算。
+func (s *Services) seedDefaultRule() {
+	_, _ = s.Conversions.EnsureSeed(context.Background(), conversion.ConversionRule{
+		Code:           "HG-20000101",
+		Name:           "默认规则：湿重折算干重（60%）",
+		EffectiveFrom:  date.MustParse("2000-01-01"),
+		WetToDryFactor: 0.6,
+		Remark:         "测试默认规则",
+	})
 }
 
 // Fixture 内存库 + 服务 + 默认管段的组合，方便测试用例直接使用。
@@ -139,6 +161,8 @@ func (s *Services) CreateRecord(t *testing.T, taskID uint, sludge float64) *clea
 		CleanedAt:      date.Today().AddDays(-1),
 		LengthM:        100,
 		SludgeVolumeM3: sludge,
+		RawWeightT:     sludge * 1.4,
+		WeightBasis:    conversion.BasisWet,
 		WaterVolumeM3:  30,
 		PersonnelCount: 5,
 		Method:         cleaningtask.MethodHighPressure,

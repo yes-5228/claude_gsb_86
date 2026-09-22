@@ -12,7 +12,7 @@ import { useAsync } from '../../hooks/useAsync';
 import { useForm, type FormErrors } from '../../hooks/useForm';
 import { useMeta } from '../../providers/MetaProvider';
 import type { CleaningRecord, RecordPayload } from '../../types/domain';
-import { isDateString, today } from '../../utils/format';
+import { formatFactor, formatWeight, isDateString, today } from '../../utils/format';
 import { optionLabel } from '../../utils/options';
 
 interface RecordFormValues {
@@ -20,6 +20,8 @@ interface RecordFormValues {
   cleanedAt: string;
   lengthM: string;
   sludgeVolumeM3: string;
+  rawWeightT: string;
+  weightBasis: string;
   waterVolumeM3: string;
   personnelCount: string;
   method: string;
@@ -38,6 +40,8 @@ function emptyForm(taskId = ''): RecordFormValues {
     cleanedAt: today(),
     lengthM: '',
     sludgeVolumeM3: '',
+    rawWeightT: '',
+    weightBasis: 'wet',
     waterVolumeM3: '',
     personnelCount: '',
     method: '',
@@ -56,7 +60,9 @@ function toFormValues(record: CleaningRecord): RecordFormValues {
     taskId: String(record.taskId),
     cleanedAt: record.cleanedAt ?? '',
     lengthM: String(record.lengthM),
-    sludgeVolumeM3: String(record.sludgeVolumeM3),
+    sludgeVolumeM3: String(record.sludgeVolumeM3 ?? ''),
+    rawWeightT: String(record.rawWeightT),
+    weightBasis: record.weightBasis,
     waterVolumeM3: String(record.waterVolumeM3),
     personnelCount: String(record.personnelCount),
     method: record.method,
@@ -75,7 +81,9 @@ function toPayload(values: RecordFormValues): RecordPayload {
     taskId: Number(values.taskId),
     cleanedAt: values.cleanedAt,
     lengthM: Number(values.lengthM),
-    sludgeVolumeM3: Number(values.sludgeVolumeM3),
+    sludgeVolumeM3: values.sludgeVolumeM3 === '' ? 0 : Number(values.sludgeVolumeM3),
+    rawWeightT: Number(values.rawWeightT),
+    weightBasis: values.weightBasis as RecordPayload['weightBasis'],
     waterVolumeM3: values.waterVolumeM3 === '' ? 0 : Number(values.waterVolumeM3),
     personnelCount: Number(values.personnelCount),
     method: values.method as RecordPayload['method'],
@@ -106,9 +114,16 @@ function validate(values: RecordFormValues): FormErrors<RecordFormValues> {
   if (values.lengthM === '' || Number.isNaN(length) || length <= 0 || length > 100000) {
     errors.lengthM = '清淤长度需大于 0 且不超过 100000（m）';
   }
-  const sludge = Number(values.sludgeVolumeM3);
-  if (values.sludgeVolumeM3 === '' || Number.isNaN(sludge) || sludge <= 0 || sludge > 100000) {
-    errors.sludgeVolumeM3 = '清淤量需大于 0 且不超过 100000（m³）';
+  const volume = Number(values.sludgeVolumeM3);
+  if (values.sludgeVolumeM3 !== '' && (Number.isNaN(volume) || volume < 0 || volume > 100000)) {
+    errors.sludgeVolumeM3 = '清淤方量需在 0 ~ 100000 之间（m³），可留空';
+  }
+  const rawWeight = Number(values.rawWeightT);
+  if (values.rawWeightT === '' || Number.isNaN(rawWeight) || rawWeight <= 0 || rawWeight > 100000) {
+    errors.rawWeightT = '清淤量原始重量需大于 0 且不超过 100000（吨）';
+  }
+  if (values.weightBasis !== 'wet' && values.weightBasis !== 'dry') {
+    errors.weightBasis = '请选择计量口径';
   }
   const water = Number(values.waterVolumeM3);
   if (values.waterVolumeM3 === '' || Number.isNaN(water) || water < 0 || water > 100000) {
@@ -196,6 +211,19 @@ export function RecordFormPage() {
           </div>
         ) : null}
 
+        {isEdit && detail.data?.record ? (
+          <div className="alert alert-info">
+            <p>
+              原始计量：{formatWeight(detail.data.record.rawWeightT)}（
+              {optionLabel(enums?.weightBases, detail.data.record.weightBasis)}）；统一口径折算干重：
+              <strong> {formatWeight(detail.data.record.convertedDryT)}</strong>
+              ，折算系数 {formatFactor(detail.data.record.conversionFactor)}
+              {detail.data.record.conversionRuleCode ? `（规则 ${detail.data.record.conversionRuleCode}）` : '（干重口径）'}
+              。修改原始重量或清淤日期后将按当时生效规则重新折算，历史原始值以本次提交为准。
+            </p>
+          </div>
+        ) : null}
+
         {tasks.error ? (
           <div className="alert alert-warn">
             <p>任务下拉加载失败：{tasks.error}</p>
@@ -242,11 +270,43 @@ export function RecordFormPage() {
                 onChange={(event) => form.setValue('lengthM', event.target.value)}
               />
             </FormField>
-            <FormField label="清淤量（m³）" required error={form.errors.sludgeVolumeM3}>
+            <FormField
+              label="计量口径"
+              required
+              error={form.errors.weightBasis}
+              hint="看板与报表统一折算为干重（吨）"
+            >
+              <select
+                className="select"
+                value={form.values.weightBasis}
+                onChange={(event) => form.setValue('weightBasis', event.target.value)}
+              >
+                {(enums?.weightBases ?? []).map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            <FormField
+              label="清淤量原始重量（吨）"
+              required
+              error={form.errors.rawWeightT}
+              hint={form.values.weightBasis === 'wet' ? '湿重：按清淤日期生效规则折算干重' : '干重：系数恒为 1'}
+            >
+              <input
+                className="input"
+                inputMode="decimal"
+                value={form.values.rawWeightT}
+                onChange={(event) => form.setValue('rawWeightT', event.target.value)}
+              />
+            </FormField>
+            <FormField label="清淤方量（m³，可选）" error={form.errors.sludgeVolumeM3}>
               <input
                 className="input"
                 inputMode="decimal"
                 value={form.values.sludgeVolumeM3}
+                placeholder="仅作作业参考，不参与统一口径合计"
                 onChange={(event) => form.setValue('sludgeVolumeM3', event.target.value)}
               />
             </FormField>

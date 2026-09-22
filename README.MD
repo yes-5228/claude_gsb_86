@@ -12,7 +12,8 @@
 | 运行看板 | `/` | 跨模块汇总管段、任务、清淤量、验收合格率，含待验收任务与分片区统计 |
 | 管段台账 | `/segments`、`/segments/new`、`/segments/:id`、`/segments/:id/edit` | 管段档案维护、任务概况、清淤履历（计划 → 记录 → 验收） |
 | 清淤任务 | `/tasks`、`/tasks/new`、`/tasks/:id`、`/tasks/:id/edit` | 任务登记、开工 / 完工报验 / 取消、任务下清淤记录与验收结论 |
-| 清淤记录 | `/records`、`/records/new`、`/records/:id`、`/records/:id/edit` | 按次录入现场数据（长度、清淤量、用水量、人数、设备、安全措施等） |
+| 清淤记录 | `/records`、`/records/new`、`/records/:id`、`/records/:id/edit` | 按次录入现场数据（长度、原始重量与湿/干口径、用水量、人数、设备、安全措施等），折算干重随记录固化 |
+| 换算规则 | `/conversion-rules` | 湿重→干重折算系数的版本化管理（带生效时间）、新增规则前预览影响范围、变更日志 |
 | 验收记录 | `/acceptances`、`/acceptances/new`、`/acceptances/:id` | 登记验收结论、整改跟踪、复验 |
 | 枚举字典 | `/api/v1/meta/enums` | 后端统一下发全部枚举中文标签，前端不硬编码文案 |
 
@@ -132,10 +133,15 @@ npm run dev            # http://localhost:5173
 | --- | --- | --- |
 | GET | `/healthz` | 健康检查（环境、数据库、运行时长） |
 | GET | `/api/v1/meta/enums` | 全部枚举字典 |
-| GET | `/api/v1/dashboard/overview` | 看板总览指标 |
-| GET | `/api/v1/dashboard/district-stats` | 分片区统计 |
+| GET | `/api/v1/dashboard/overview` | 看板总览指标（含统一口径干重合计与当前规则） |
+| GET | `/api/v1/dashboard/district-stats` | 分片区统计（片区折算干重之和与看板总量同源） |
 | GET | `/api/v1/dashboard/pending-acceptance?limit=8` | 待验收任务 |
-| GET | `/api/v1/dashboard/recent-records?limit=8` | 最近清淤记录 |
+| GET | `/api/v1/dashboard/recent-records?limit=8` | 最近清淤记录（含原始值、口径与折算干重） |
+| GET | `/api/v1/conversion-rules` | 换算规则版本列表（标注各版本生效区间） |
+| GET | `/api/v1/conversion-rules/caliber` | 当前统一口径与生效规则 |
+| GET | `/api/v1/conversion-rules/logs` | 规则变更日志（每次调整的影响范围留痕） |
+| POST | `/api/v1/conversion-rules/impact-preview` | 预览新规则对既有统计的影响（不落库） |
+| POST | `/api/v1/conversion-rules` | 新增规则版本，事务内重算生效区间内既有湿重记录 |
 | GET | `/api/v1/pipe-segments` | 管段列表（`keyword` `district` `pipeType` `status` `page` `pageSize`） |
 | GET | `/api/v1/pipe-segments/options` | 管段下拉选项 + 已有片区 |
 | GET | `/api/v1/pipe-segments/:id` | 管段详情（含任务统计与最近任务） |
@@ -179,6 +185,26 @@ pending ──开工──▶ in_progress ──完工报验──▶ completed 
   回写最近清淤日期与运行状态。
 - 删除保护：被任务引用的管段、已产生清淤记录或验收记录的任务、被验收记录引用的清淤记录、
   以及已合格的验收记录，都不允许删除。
+
+## 清淤量统一口径（湿重 / 干重折算）
+
+现场清淤量既可能按**湿重**计量，也可能按**干重**计量。系统对看板、报表与各级合计统一折算为
+**干重（吨）**，规则集中在 `internal/modules/conversion`：
+
+- 每条清淤记录同时保存两部分，互不覆盖：
+  - 原始计量值：`raw_weight_t` + `weight_basis`（wet 湿重 / dry 干重），录入后任何折算都不改写；
+  - 折算结果：`converted_dry_t`（6 位小数固化）+ 命中规则快照（`conversion_rule_id` /
+    `conversion_rule_code` / `conversion_factor`）。干重口径系数恒为 1、不命中规则。
+- 折算公式：`干重(吨) = 原始重量(吨) × 系数`；湿重取清淤日期当天生效规则的系数，干重恒为 1。
+- **规则带生效时间且只增不改**（append-only）。某业务日期命中 `effective_from <= 该日期` 的最新一条；
+  因此**跨月补录按清淤日期当时生效的规则折算**，与录入日期无关。
+- 新增规则只重算其生效区间 `[生效日, 下一条规则生效日前一天]` 内的**湿重**记录；保存前可用
+  `impact-preview` 预览受影响的记录 / 任务 / 管段 / 片区数量与折算前后合计，保存后写入变更日志。
+  干重记录系数恒为 1，不在重算范围；原始计量值始终不变。
+- **四级合计严格一致**：任务、管段、片区、看板都直接 `SUM(converted_dry_t)` 同一条叶子列，
+  折算值按 10^-6 吨固化、中间任何一级都不先取整，只在接口边界按 2 位小数展示，
+  从根本上避免「各级分别取整后总量对不上」。
+- `sludge_volume_m3`（清淤方量 m³）保留为现场作业辅助指标，不参与统一口径合计。
 
 ## 校验与错误码
 

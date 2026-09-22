@@ -55,6 +55,22 @@ export function formatVolume(value: number | null | undefined): string {
   return `${formatNumber(value, 2)} m³`;
 }
 
+/** 重量展示（吨），统一口径干重与原始重量都使用它。 */
+export function formatWeight(value: number | null | undefined, digits = 2): string {
+  if (value === null || value === undefined) {
+    return '—';
+  }
+  return `${formatNumber(value, digits)} 吨`;
+}
+
+/** 折算系数展示（去掉多余尾随 0）。 */
+export function formatFactor(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return '—';
+  }
+  return formatNumber(value, 4);
+}
+
 /**
  * 百分比展示。
  *

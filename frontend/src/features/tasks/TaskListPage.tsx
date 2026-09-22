@@ -13,7 +13,7 @@ import { useToast } from '../../components/Toast';
 import { useAsync } from '../../hooks/useAsync';
 import { useMeta } from '../../providers/MetaProvider';
 import type { TaskListItem } from '../../types/domain';
-import { formatDate, formatNumber, formatVolume } from '../../utils/format';
+import { formatDate, formatNumber, formatWeight } from '../../utils/format';
 
 const PAGE_SIZE = 10;
 
@@ -133,12 +133,12 @@ export function TaskListPage() {
     },
     {
       key: 'totals',
-      title: '清淤汇总',
+      title: '折算干重',
       width: '130px',
       align: 'right',
       render: (row) => (
         <>
-          <span className="cell-num">{formatVolume(row.recordTotals?.sludgeVolumeM3 ?? 0)}</span>
+          <span className="cell-num">{formatWeight(row.recordTotals?.convertedDryT ?? 0)}</span>
           <span className="cell-sub">记录 {formatNumber(row.recordTotals?.recordCount ?? 0, 0)} 条</span>
         </>
       )

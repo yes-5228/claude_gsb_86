@@ -12,7 +12,7 @@ import { StatusTag } from '../../components/StatusTag';
 import { StateBlock } from '../../components/StateBlock';
 import { useToast } from '../../components/Toast';
 import { useAsync } from '../../hooks/useAsync';
-import { formatDate, formatDateTime, formatLength, formatNumber, formatVolume, today } from '../../utils/format';
+import { formatDate, formatDateTime, formatLength, formatNumber, formatWeight, today } from '../../utils/format';
 
 export function AcceptanceDetailPage() {
   const params = useParams();
@@ -149,7 +149,7 @@ export function AcceptanceDetailPage() {
               <div style={{ height: 16 }} />
               <div className="stat-grid">
                 <StatCard label="清淤记录条数" value={formatNumber(totals?.recordCount ?? 0, 0)} tone="primary" />
-                <StatCard label="累计清淤量" value={formatVolume(totals?.sludgeVolumeM3 ?? 0)} />
+                <StatCard label="累计折算干重" value={formatWeight(totals?.convertedDryT ?? 0)} hint="统一口径（干重吨）" />
                 <StatCard label="累计清淤长度" value={formatLength(totals?.cleanedLengthM ?? 0)} />
                 <StatCard label="最近清淤日期" value={formatDate(totals?.latestCleanedAt)} />
               </div>

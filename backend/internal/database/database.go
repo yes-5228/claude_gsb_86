@@ -16,6 +16,7 @@ import (
 	"github.com/drainage/desilting/internal/modules/acceptance"
 	"github.com/drainage/desilting/internal/modules/cleaningrecord"
 	"github.com/drainage/desilting/internal/modules/cleaningtask"
+	"github.com/drainage/desilting/internal/modules/conversion"
 	"github.com/drainage/desilting/internal/modules/pipesegment"
 )
 
@@ -72,6 +73,8 @@ func dialectorFor(cfg *config.Config) (gorm.Dialector, error) {
 // 便于后续按模块拆库时平滑迁移。
 func Migrate(db *gorm.DB) error {
 	return db.AutoMigrate(
+		&conversion.ConversionRule{},
+		&conversion.ConversionLog{},
 		&pipesegment.PipeSegment{},
 		&cleaningtask.CleaningTask{},
 		&cleaningrecord.CleaningRecord{},

@@ -5,6 +5,7 @@ import { ToastProvider } from './components/Toast';
 import { AcceptanceDetailPage } from './features/acceptances/AcceptanceDetailPage';
 import { AcceptanceFormPage } from './features/acceptances/AcceptanceFormPage';
 import { AcceptanceListPage } from './features/acceptances/AcceptanceListPage';
+import { ConversionRulesPage } from './features/conversion/ConversionRulesPage';
 import { DashboardPage } from './features/dashboard/DashboardPage';
 import { NotFoundPage } from './features/NotFoundPage';
 import { RecordDetailPage } from './features/records/RecordDetailPage';
@@ -45,6 +46,9 @@ export function App() {
               <Route path="records/new" element={<RecordFormPage />} />
               <Route path="records/:id" element={<RecordDetailPage />} />
               <Route path="records/:id/edit" element={<RecordFormPage />} />
+
+              {/* 换算规则 */}
+              <Route path="conversion-rules" element={<ConversionRulesPage />} />
 
               {/* 验收记录 */}
               <Route path="acceptances" element={<AcceptanceListPage />} />
