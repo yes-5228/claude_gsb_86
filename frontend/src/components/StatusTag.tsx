@@ -12,7 +12,8 @@ export type TagList =
   | 'cleaningMethods'
   | 'weathers'
   | 'acceptanceResults'
-  | 'pipeTypes';
+  | 'pipeTypes'
+  | 'sludgeCalibers';
 
 const TONES: Record<string, string> = {
   pending: 'muted',

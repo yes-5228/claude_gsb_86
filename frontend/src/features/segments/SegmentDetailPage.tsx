@@ -7,13 +7,14 @@ import { DataTable, type Column } from '../../components/DataTable';
 import { InfoList } from '../../components/InfoList';
 import { PageHeader } from '../../components/PageHeader';
 import { SectionCard } from '../../components/SectionCard';
+import { StandardWithRaw } from '../../components/SludgeValue';
 import { StatCard } from '../../components/StatCard';
 import { StatusTag } from '../../components/StatusTag';
 import { StateBlock } from '../../components/StateBlock';
 import { useToast } from '../../components/Toast';
 import { useAsync } from '../../hooks/useAsync';
 import type { SegmentHistoryItem, TaskRef } from '../../types/domain';
-import { formatDate, formatDateTime, formatLength, formatNumber, formatVolume } from '../../utils/format';
+import { formatDate, formatDateTime, formatLength, formatNumber, formatTonnage } from '../../utils/format';
 import { useState } from 'react';
 
 const taskColumns: Column<TaskRef>[] = [
@@ -40,7 +41,13 @@ const taskColumns: Column<TaskRef>[] = [
     render: (row) => `${formatDate(row.planStartDate)} ~ ${formatDate(row.planEndDate)}`
   },
   { key: 'recordCount', title: '记录数', width: '80px', align: 'right', render: (row) => formatNumber(row.recordCount, 0) },
-  { key: 'sludge', title: '清淤量', width: '110px', align: 'right', render: (row) => formatVolume(row.sludgeVolumeM3) }
+  {
+    key: 'sludge',
+    title: '清淤量（折算干重）',
+    width: '130px',
+    align: 'right',
+    render: (row) => <StandardWithRaw standardT={row.standardSludgeT} rawAmounts={row.rawAmounts} />
+  }
 ];
 
 export function SegmentDetailPage() {
@@ -174,8 +181,14 @@ export function SegmentDetailPage() {
                         </div>
                         <p className="timeline-meta">
                           计划 {formatDate(item.planStartDate)} ~ {formatDate(item.planEndDate)} · 班组{' '}
-                          {item.teamName || '—'} · 清淤记录 {item.recordCount} 条 · 清淤量{' '}
-                          {formatVolume(item.sludgeVolumeM3)} · 清淤长度 {formatLength(item.cleanedLengthM)}
+                          {item.teamName || '—'} · 清淤记录 {item.recordCount} 条 · 折算干重{' '}
+                          {formatTonnage(item.standardSludgeT)}
+                          {item.rawAmounts.length > 0
+                            ? ` · 原始 ${item.rawAmounts
+                                .map((raw) => `${formatNumber(raw.amount, 2)} ${raw.unit}`)
+                                .join(' + ')}`
+                            : ''}{' '}
+                          · 清淤长度 {formatLength(item.cleanedLengthM)}
                         </p>
                         <p className="timeline-meta">验收日期：{formatDate(item.acceptedAt)}</p>
                       </li>

@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/drainage/desilting/internal/shared/num"
+	"github.com/drainage/desilting/internal/shared/sludge"
 )
 
 // 各模块的表名。
@@ -35,16 +36,17 @@ type TaskStats struct {
 
 // TaskRef 管段详情中展示的精简任务信息。
 type TaskRef struct {
-	ID             uint    `json:"id"`
-	Code           string  `json:"code"`
-	Title          string  `json:"title"`
-	Status         string  `json:"status"`
-	Priority       string  `json:"priority"`
-	TeamName       string  `json:"teamName"`
-	PlanStartDate  string  `json:"planStartDate"`
-	PlanEndDate    string  `json:"planEndDate"`
-	RecordCount    int64   `json:"recordCount"`
-	SludgeVolumeM3 float64 `json:"sludgeVolumeM3"`
+	ID              uint        `json:"id"`
+	Code            string      `json:"code"`
+	Title           string      `json:"title"`
+	Status          string      `json:"status"`
+	Priority        string      `json:"priority"`
+	TeamName        string      `json:"teamName"`
+	PlanStartDate   string      `json:"planStartDate"`
+	PlanEndDate     string      `json:"planEndDate"`
+	RecordCount     int64       `gorm:"column:record_count" json:"recordCount"`
+	StandardSludgeT float64     `gorm:"column:standard_sludge_t" json:"standardSludgeT"`
+	RawAmounts      []RawAmount `gorm:"-" json:"rawAmounts"`
 }
 
 // HasTasksForSegment 管段是否已经被清淤任务引用。
@@ -101,29 +103,72 @@ func TaskStatsForSegment(ctx context.Context, db *gorm.DB, segmentID uint) (Task
 	return stats, nil
 }
 
-// RecentTasksForSegment 查询某管段最近的任务，并带上已录入的清淤量与记录条数。
+// RecentTasksForSegment 查询某管段最近的任务，并带上已录入的折算清淤量与记录条数。
+//
+// 直接 LEFT JOIN 清淤记录后按任务 GROUP BY，折算表达式只出现在外层 SELECT：
+// 先在记录层 ROUND 再求和，与任务 / 片区 / 看板共用同一段折算 SQL。
 func RecentTasksForSegment(ctx context.Context, db *gorm.DB, segmentID uint, limit int) ([]TaskRef, error) {
 	if limit <= 0 {
 		limit = 5
 	}
+	perRecordSum, sumArgs := StandardSumExpr("cr")
 	refs := make([]TaskRef, 0, limit)
 	err := db.WithContext(ctx).Table(TableCleaningTasks+" AS t").
 		Select(`t.id, t.code, t.title, t.status, t.priority, t.team_name,
 			t.plan_start_date, t.plan_end_date,
-			COALESCE(r.record_count, 0) AS record_count,
-			COALESCE(r.sludge_volume, 0) AS sludge_volume_m3`).
-		Joins(`LEFT JOIN (
-			SELECT task_id, COUNT(*) AS record_count, SUM(sludge_volume_m3) AS sludge_volume
-			FROM `+TableCleaningRecords+` GROUP BY task_id
-		) AS r ON r.task_id = t.id`).
+			COUNT(cr.id) AS record_count,
+			`+perRecordSum+` AS standard_sludge_t`, sumArgs...).
+		Joins("LEFT JOIN "+TableCleaningRecords+" AS cr ON cr.task_id = t.id").
 		Where("t.pipe_segment_id = ?", segmentID).
+		Group("t.id").
 		Order("t.plan_start_date DESC, t.id DESC").
 		Limit(limit).
 		Scan(&refs).Error
-	for i := range refs {
-		refs[i].SludgeVolumeM3 = num.Round2(refs[i].SludgeVolumeM3)
+	if err != nil {
+		return nil, err
 	}
-	return refs, err
+	if len(refs) == 0 {
+		return refs, nil
+	}
+	taskIDs := make([]uint, 0, len(refs))
+	for _, ref := range refs {
+		taskIDs = append(taskIDs, ref.ID)
+	}
+	rawByTask, err := rawAmountsGrouped(ctx, db, taskIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range refs {
+		refs[i].StandardSludgeT = num.Round2(refs[i].StandardSludgeT)
+		refs[i].RawAmounts = rawByTask[refs[i].ID]
+	}
+	return refs, nil
+}
+
+// rawAmountsGrouped 批量汇总多个任务在各原始口径下的数值合计。
+func rawAmountsGrouped(ctx context.Context, db *gorm.DB, taskIDs []uint) (map[uint][]RawAmount, error) {
+	type rawRow struct {
+		TaskID  uint
+		Caliber string
+		Amount  float64
+	}
+	rawRows := make([]rawRow, 0)
+	if err := db.WithContext(ctx).Table(TableCleaningRecords).
+		Select("task_id, "+colCaliber+" AS caliber, COALESCE(SUM("+colAmount+"), 0) AS amount").
+		Where("task_id IN ?", taskIDs).
+		Group("task_id, " + colCaliber).
+		Scan(&rawRows).Error; err != nil {
+		return nil, err
+	}
+	result := make(map[uint][]RawAmount, len(taskIDs))
+	for _, r := range rawRows {
+		result[r.TaskID] = append(result[r.TaskID], RawAmount{
+			Caliber: r.Caliber,
+			Unit:    sludge.Unit(r.Caliber),
+			Amount:  num.Round2(r.Amount),
+		})
+	}
+	return result, nil
 }
 
 func exists(ctx context.Context, db *gorm.DB, table, where string, args ...any) (bool, error) {

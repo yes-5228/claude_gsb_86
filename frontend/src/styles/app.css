@@ -1017,3 +1017,22 @@ h3 {
     grid-column: span 1;
   }
 }
+
+/* 清淤量折算值与原始值并列展示 */
+.sludge-dual {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.sludge-standard {
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.data-table td.align-right,
+.data-table th.align-right {
+  text-align: right;
+}

@@ -8,6 +8,10 @@ export type TaskSource = 'plan' | 'inspection' | 'complaint' | 'flood';
 export type CleaningMethod = 'high_pressure' | 'winch' | 'grab' | 'manual' | 'robot';
 export type Weather = 'sunny' | 'cloudy' | 'overcast' | 'light_rain' | 'heavy_rain';
 export type AcceptanceResult = 'pass' | 'rework';
+/** 清淤量原始计量口径：体积 m³ / 湿重（湿污泥 t）/ 干重（干污泥 t）。 */
+export type SludgeCaliber = 'm3' | 'wet_t' | 'dry_t';
+/** 换算规则方向。 */
+export type ConversionPair = 'm3->wet_t' | 'wet_t->dry_t';
 
 /** 任务可执行的操作标识，由后端 allowedActions 下发。 */
 export type TaskAction = 'start' | 'complete' | 'accept' | 'cancel' | 'edit';
@@ -76,7 +80,15 @@ export interface TaskRef {
   planStartDate: string | null;
   planEndDate: string | null;
   recordCount: number;
-  sludgeVolumeM3: number;
+  standardSludgeT: number;
+  rawAmounts: RawAmount[];
+}
+
+/** 某原始口径下的数值合计（不换算，仅用于对照原始台账）。 */
+export interface RawAmount {
+  caliber: SludgeCaliber;
+  unit: string;
+  amount: number;
 }
 
 export interface SegmentDetail {
@@ -95,7 +107,8 @@ export interface SegmentHistoryItem {
   planStartDate: string | null;
   planEndDate: string | null;
   recordCount: number;
-  sludgeVolumeM3: number;
+  standardSludgeT: number;
+  rawAmounts: RawAmount[];
   cleanedLengthM: number;
   acceptanceResult: AcceptanceResult | '';
   acceptedAt: string | null;
@@ -151,7 +164,10 @@ export interface CleaningTask {
 
 export interface RecordTotals {
   recordCount: number;
-  sludgeVolumeM3: number;
+  /** 折算到统一口径（干重 t）后的合计，任务/管段/片区/看板四层一致。 */
+  standardSludgeT: number;
+  /** 各原始口径数值合计（不参与跨口径汇总，仅对照展示）。 */
+  rawAmounts: RawAmount[];
   cleanedLengthM: number;
   latestCleanedAt: string | null;
 }
@@ -217,7 +233,12 @@ export interface CleaningRecord {
   taskId: number;
   cleanedAt: string | null;
   lengthM: number;
-  sludgeVolumeM3: number;
+  /** 原始计量数值（现场录入，不被折算改写）。 */
+  sludgeAmount: number;
+  /** 原始计量口径：m3 / wet_t / dry_t。 */
+  sludgeCaliber: SludgeCaliber;
+  /** 按清淤日期当时生效规则折算的干重（干污泥 t）。 */
+  standardT: number;
   waterVolumeM3: number;
   personnelCount: number;
   method: CleaningMethod | '';
@@ -245,7 +266,8 @@ export interface RecordPayload {
   taskId: number;
   cleanedAt: string;
   lengthM: number;
-  sludgeVolumeM3: number;
+  sludgeAmount: number;
+  sludgeCaliber: SludgeCaliber;
   waterVolumeM3: number;
   personnelCount: number;
   method: CleaningMethod | '';
@@ -322,8 +344,9 @@ export interface Overview {
   taskByStatus: Record<string, number>;
   taskOverdue: number;
   recordTotal: number;
-  sludgeTotalM3: number;
-  sludgeThisMonthM3: number;
+  /** 累计折算干重（干污泥 t，统一口径）。 */
+  sludgeTotalT: number;
+  sludgeThisMonthT: number;
   cleanedLengthM: number;
   acceptanceTotal: number;
   acceptancePassCount: number;
@@ -341,7 +364,7 @@ export interface DistrictStat {
   lastCleanedAt: string | null;
   taskCount: number;
   acceptedTaskCount: number;
-  sludgeVolumeM3: number;
+  standardSludgeT: number;
 }
 
 export interface PendingAcceptanceItem {
@@ -355,7 +378,7 @@ export interface PendingAcceptanceItem {
   planEndDate: string | null;
   finishedAt: string | null;
   recordCount: number;
-  sludgeVolumeM3: number;
+  standardSludgeT: number;
   overdueDays: number;
 }
 
@@ -371,7 +394,9 @@ export interface RecentRecordItem {
   teamName: string;
   recorderName: string;
   lengthM: number;
-  sludgeVolumeM3: number;
+  sludgeAmount: number;
+  sludgeCaliber: SludgeCaliber;
+  standardT: number;
 }
 
 export interface Enums {
@@ -384,4 +409,68 @@ export interface Enums {
   cleaningMethods: Option[];
   weathers: Option[];
   acceptanceResults: Option[];
+  sludgeCalibers: Option[];
+}
+
+// ---------- 清淤量换算规则 ----------
+
+export interface SludgeRule {
+  id: number;
+  pair: ConversionPair;
+  factor: number;
+  effectiveFrom: string;
+  remark: string;
+  createdAt: string;
+  updatedAt: string;
+  fromCaliber: SludgeCaliber;
+  toCaliber: SludgeCaliber;
+  latest: boolean;
+  referenced: boolean;
+  deletable: boolean;
+  affectedRecord: number;
+}
+
+export interface SludgeRulePayload {
+  pair: ConversionPair;
+  factor: number;
+  effectiveFrom: string;
+  remark: string;
+}
+
+export interface RuleImpactSample {
+  recordId: number;
+  code: string;
+  taskId: number;
+  cleanedAt: string;
+  district: string;
+  caliber: SludgeCaliber;
+  rawAmount: number;
+  beforeT: number;
+  afterT: number;
+  deltaT: number;
+}
+
+export interface RuleImpact {
+  pair: ConversionPair;
+  factor: number;
+  effectiveFrom: string;
+  affectedRecord: number;
+  affectedTask: number;
+  affectedDistricts: string[];
+  beforeStandardT: number;
+  afterStandardT: number;
+  deltaStandardT: number;
+  grandTotalBeforeT: number;
+  grandTotalAfterT: number;
+  samples: RuleImpactSample[];
+}
+
+export interface ConversionPreview {
+  amount: number;
+  caliber: SludgeCaliber;
+  cleanedAt: string;
+  standardT: number;
+  densityTPerM3: number;
+  wetToDryFactor: number;
+  factorSource: string;
 }

@@ -12,9 +12,10 @@
 | 运行看板 | `/` | 跨模块汇总管段、任务、清淤量、验收合格率，含待验收任务与分片区统计 |
 | 管段台账 | `/segments`、`/segments/new`、`/segments/:id`、`/segments/:id/edit` | 管段档案维护、任务概况、清淤履历（计划 → 记录 → 验收） |
 | 清淤任务 | `/tasks`、`/tasks/new`、`/tasks/:id`、`/tasks/:id/edit` | 任务登记、开工 / 完工报验 / 取消、任务下清淤记录与验收结论 |
-| 清淤记录 | `/records`、`/records/new`、`/records/:id`、`/records/:id/edit` | 按次录入现场数据（长度、清淤量、用水量、人数、设备、安全措施等） |
+| 清淤记录 | `/records`、`/records/new`、`/records/:id`、`/records/:id/edit` | 按次录入现场数据（长度、清淤量原始值与口径、用水量、人数、设备、安全措施等） |
+| 换算规则 | `/sludge-rules`、`/sludge-rules/impact`、`/sludge-rules/preview` | 清淤量体积 / 湿重 / 干重换算系数版本链，新增版本前可试算影响范围 |
 | 验收记录 | `/acceptances`、`/acceptances/new`、`/acceptances/:id` | 登记验收结论、整改跟踪、复验 |
-| 枚举字典 | `/api/v1/meta/enums` | 后端统一下发全部枚举中文标签，前端不硬编码文案 |
+| 枚举字典 | `/api/v1/meta/enums` | 后端统一下发全部枚举中文标签（含清淤量口径），前端不硬编码文案 |
 
 ## 技术栈
 
@@ -36,12 +37,13 @@
 │   │   ├── modules/                 # 业务模块（每个模块 model/dto/repository/service/handler/routes）
 │   │   │   ├── pipesegment/         # 管段台账
 │   │   │   ├── cleaningtask/        # 清淤任务（含状态机）
-│   │   │   ├── cleaningrecord/      # 清淤记录
+│   │   │   ├── cleaningrecord/      # 清淤记录（原始值 + 计量口径）
 │   │   │   ├── acceptance/          # 验收记录
-│   │   │   ├── dashboard/           # 运行看板（只读汇总）
-│   │   │   └── meta/                # 枚举字典
+│   │   │   ├── conversion/          # 换算规则版本链（湿重/干重/体积 + 生效时间）
+│   │   │   ├── dashboard/           # 运行看板（只读汇总，折算干重统一口径）
+│   │   │   └── meta/                # 枚举字典（含计量口径）
 │   │   ├── router/                  # 路由装配
-│   │   ├── shared/                  # 公共能力：date / option / num / refx
+│   │   ├── shared/                  # 公共能力：date / option / num / refx / sludge
 │   │   └── testsupport/             # 测试辅助（内存 SQLite + 断言）
 │   └── Dockerfile
 ├── frontend/                        # React 前端
@@ -148,8 +150,13 @@ npm run dev            # http://localhost:5173
 | POST | `/api/v1/cleaning-tasks/:id/complete` | 完工报验（清淤中 → 待验收，需至少 1 条清淤记录） |
 | POST | `/api/v1/cleaning-tasks/:id/cancel` | 取消任务（需填写取消原因） |
 | GET | `/api/v1/cleaning-records` | 记录列表（`keyword` `taskId` `segmentId` `method` `weather` `dateFrom` `dateTo`） |
-| GET | `/api/v1/cleaning-records/:id` | 记录详情（含所属任务与管段） |
+| GET | `/api/v1/cleaning-records/:id` | 记录详情（含所属任务、管段、原始值与折算干重） |
 | POST/PUT/DELETE | `/api/v1/cleaning-records[/:id]` | 录入 / 修改 / 删除清淤记录 |
+| GET | `/api/v1/sludge-rules` | 换算规则版本链（按方向、生效日期排序，标注是否被引用 / 可删除） |
+| POST | `/api/v1/sludge-rules` | 新增换算规则版本（append-only，返回生效影响范围） |
+| POST | `/api/v1/sludge-rules/impact` | 规则调整影响范围试算（不写库） |
+| POST | `/api/v1/sludge-rules/preview` | 录入表单单值折算预览（按清淤日期生效规则） |
+| DELETE | `/api/v1/sludge-rules/:id` | 删除未被任何记录覆盖的未来最新版本 |
 | GET | `/api/v1/acceptances` | 验收列表（`keyword` `taskId` `segmentId` `result` `inspectorName` `dateFrom` `dateTo` `pendingRectify`） |
 | GET | `/api/v1/acceptances/:id` | 验收详情（含任务与清淤汇总） |
 | POST | `/api/v1/acceptances` | 登记验收结论 |
@@ -179,6 +186,33 @@ pending ──开工──▶ in_progress ──完工报验──▶ completed 
   回写最近清淤日期与运行状态。
 - 删除保护：被任务引用的管段、已产生清淤记录或验收记录的任务、被验收记录引用的清淤记录、
   以及已合格的验收记录，都不允许删除。
+
+### 清淤量统计口径（湿重 / 干重 / 体积统一）
+
+现场清淤量支持三种原始计量口径：体积 `m3`（m³）、湿重 `wet_t`（湿污泥 t）、干重 `dry_t`（干污泥 t）。
+看板与报表的**统一统计口径为干重（干污泥 t）**，折算链路：
+
+```
+体积 m³ ──湿污泥密度(t/m³)──▶ 湿重 t ──干湿系数──▶ 干重 t（统一口径）
+湿重 t ───────────────────────▶ 干重 t
+干重 t ───────────────────────────────────────▶ 直接计入
+```
+
+口径统一的关键约束（对应 `internal/shared/sludge` 与 `internal/shared/refx/sludge_sql.go`）：
+
+- **原始值不改写**：清淤记录只持久化原始计量值 `sludge_amount` + 口径 `sludge_caliber`；
+  折算值 `standardT` 不落库，查询时按清淤日期当时生效的规则动态计算，界面上原始值与折算值并列展示。
+- **规则带生效时间**：换算系数存于 append-only 版本链 `sludge_conversion_rules`
+  （方向 `m3->wet_t` / `wet_t->dry_t` + `effective_from` 唯一）。折算取
+  `effective_from <= 清淤日期` 的最新版本；因此**跨月补录按实际作业日期（而非录入日期）当时生效的规则折算**。
+  规则只能新增更晚生效的版本，历史版本不可改、不可删（基线 2000-01-01 永久兜底）。
+- **合计四层一致**：折算只在**记录层 ROUND 一次**（记录级 `standardT`），任务、管段、片区、看板
+  都对同一个记录级折算值求和（同一段 SQL 表达式），不在各级分别取整，杜绝「逐层四舍五入后总量对不上」。
+  各层合计由单测 `dashboard.TestSludgeTotalsConsistentAcrossLevels` 守护。
+- **规则调整可解释影响范围**：新增版本前 `/sludge-rules/impact` 试算受影响记录数、任务数、片区、
+  调整前后总量与逐条样例；保存接口直接返回该影响说明。
+- **历史库平滑升级**：迁移自动把旧列 `sludge_volume_m3` 原样搬迁为 `sludge_amount`（口径 `m3`），
+  数值不做任何改写，并写入两条基线系数（密度 1.40 t/m³、干湿系数 0.40）。
 
 ## 校验与错误码
 

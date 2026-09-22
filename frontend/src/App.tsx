@@ -13,6 +13,7 @@ import { RecordListPage } from './features/records/RecordListPage';
 import { SegmentDetailPage } from './features/segments/SegmentDetailPage';
 import { SegmentFormPage } from './features/segments/SegmentFormPage';
 import { SegmentListPage } from './features/segments/SegmentListPage';
+import { SludgeRulePage } from './features/sludge/SludgeRulePage';
 import { TaskDetailPage } from './features/tasks/TaskDetailPage';
 import { TaskFormPage } from './features/tasks/TaskFormPage';
 import { TaskListPage } from './features/tasks/TaskListPage';
@@ -50,6 +51,9 @@ export function App() {
               <Route path="acceptances" element={<AcceptanceListPage />} />
               <Route path="acceptances/new" element={<AcceptanceFormPage />} />
               <Route path="acceptances/:id" element={<AcceptanceDetailPage />} />
+
+              {/* 清淤量换算规则 */}
+              <Route path="sludge-rules" element={<SludgeRulePage />} />
 
               <Route path="*" element={<NotFoundPage />} />
             </Route>

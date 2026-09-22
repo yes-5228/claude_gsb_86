@@ -35,10 +35,10 @@ type Overview struct {
 	TaskByStatus map[string]int64 `json:"taskByStatus"`
 	TaskOverdue  int64            `json:"taskOverdue"`
 
-	RecordTotal       int64   `json:"recordTotal"`
-	SludgeTotalM3     float64 `json:"sludgeTotalM3"`
-	SludgeThisMonthM3 float64 `json:"sludgeThisMonthM3"`
-	CleanedLengthM    float64 `json:"cleanedLengthM"`
+	RecordTotal      int64   `json:"recordTotal"`
+	SludgeTotalT     float64 `json:"sludgeTotalT"`
+	SludgeThisMonthT float64 `json:"sludgeThisMonthT"`
+	CleanedLengthM   float64 `json:"cleanedLengthM"`
 
 	AcceptanceTotal        int64   `json:"acceptanceTotal"`
 	AcceptancePassCount    int64   `json:"acceptancePassCount"`
@@ -105,34 +105,37 @@ func (s *Service) Overview(ctx context.Context) (*Overview, error) {
 	result.TaskOverdue = overdue
 
 	// ---------- 清淤记录 ----------
+	// 折算干重与任务 / 管段 / 片区共用同一段记录级折算 SQL，
+	// 先在记录层 ROUND 再 SUM，保证四个层级合计完全一致。
+	standardSum, sumArgs := refx.StandardSumExpr("r")
 	type recordAgg struct {
 		Total   int64
 		Sludge  float64
 		LengthM float64
 	}
 	var recordStats recordAgg
-	err = s.db.WithContext(ctx).Table(refx.TableCleaningRecords).
+	err = s.db.WithContext(ctx).Table(refx.TableCleaningRecords+" AS r").
 		Select(`COUNT(*) AS total,
-			COALESCE(SUM(sludge_volume_m3), 0) AS sludge,
-			COALESCE(SUM(length_m), 0) AS length_m`).
+			`+standardSum+` AS sludge,
+			COALESCE(SUM(r.length_m), 0) AS length_m`, sumArgs...).
 		Scan(&recordStats).Error
 	if err != nil {
 		return nil, httpx.WrapInternal("统计清淤记录失败", err)
 	}
 	result.RecordTotal = recordStats.Total
-	result.SludgeTotalM3 = num.Round2(recordStats.Sludge)
+	result.SludgeTotalT = num.Round2(recordStats.Sludge)
 	result.CleanedLengthM = num.Round2(recordStats.LengthM)
 
 	monthStart := date.New(time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, time.UTC))
 	var monthSludge float64
-	err = s.db.WithContext(ctx).Table(refx.TableCleaningRecords).
-		Select("COALESCE(SUM(sludge_volume_m3), 0)").
-		Where("cleaned_at >= ?", monthStart.Time).
+	err = s.db.WithContext(ctx).Table(refx.TableCleaningRecords+" AS r").
+		Select(standardSum, sumArgs...).
+		Where("r.cleaned_at >= ?", monthStart.Time).
 		Scan(&monthSludge).Error
 	if err != nil {
 		return nil, httpx.WrapInternal("统计本月清淤量失败", err)
 	}
-	result.SludgeThisMonthM3 = num.Round2(monthSludge)
+	result.SludgeThisMonthT = num.Round2(monthSludge)
 
 	// ---------- 验收记录 ----------
 	var acceptanceTotal int64
@@ -180,7 +183,7 @@ type DistrictStat struct {
 	LastCleanedAt         *date.Date `json:"lastCleanedAt"`
 	TaskCount             int64      `json:"taskCount"`
 	AcceptedTaskCount     int64      `json:"acceptedTaskCount"`
-	SludgeVolumeM3        float64    `json:"sludgeVolumeM3"`
+	StandardSludgeT       float64    `json:"standardSludgeT"`
 }
 
 // DistrictStats 按片区统计管段规模与清淤成果。
@@ -206,18 +209,22 @@ func (s *Service) DistrictStats(ctx context.Context) ([]DistrictStat, error) {
 		return nil, httpx.WrapInternal("统计片区管段失败", err)
 	}
 
+	// 片区清淤量直接 JOIN 清淤记录后按片区分组，折算表达式只出现在外层 SELECT，
+	// 与看板总览、任务、管段共用同一段记录级折算 SQL；COUNT(DISTINCT t.id) 去重任务。
+	standardSum, sumArgs := refx.StandardSumExpr("r")
 	type taskRow struct {
 		District          string
 		TaskCount         int64
 		AcceptedTaskCount int64
-		SludgeVolumeM3    float64
+		StandardSludgeT   float64
 	}
 	taskRows := make([]taskRow, 0)
 	err = s.db.WithContext(ctx).Table(refx.TableCleaningTasks+" AS t").
 		Select(`s.district AS district,
 			COUNT(DISTINCT t.id) AS task_count,
 			COUNT(DISTINCT CASE WHEN t.status = ? THEN t.id END) AS accepted_task_count,
-			COALESCE(SUM(r.sludge_volume_m3), 0) AS sludge_volume_m3`, cleaningtask.StatusAccepted).
+			`+standardSum+` AS standard_sludge_t`,
+			append([]any{cleaningtask.StatusAccepted}, sumArgs...)...).
 		Joins("INNER JOIN " + refx.TablePipeSegments + " AS s ON s.id = t.pipe_segment_id").
 		Joins("LEFT JOIN " + refx.TableCleaningRecords + " AS r ON r.task_id = t.id").
 		Group("s.district").
@@ -243,7 +250,7 @@ func (s *Service) DistrictStats(ctx context.Context) ([]DistrictStat, error) {
 		if task, ok := taskByDistrict[row.District]; ok {
 			item.TaskCount = task.TaskCount
 			item.AcceptedTaskCount = task.AcceptedTaskCount
-			item.SludgeVolumeM3 = num.Round2(task.SludgeVolumeM3)
+			item.StandardSludgeT = num.Round2(task.StandardSludgeT)
 		}
 		stats = append(stats, item)
 	}
@@ -262,7 +269,7 @@ type PendingAcceptanceItem struct {
 	PlanEndDate     date.Date  `json:"planEndDate"`
 	FinishedAt      *time.Time `json:"finishedAt"`
 	RecordCount     int64      `json:"recordCount"`
-	SludgeVolumeM3  float64    `json:"sludgeVolumeM3"`
+	StandardSludgeT float64    `json:"standardSludgeT"`
 	OverdueDays     int        `json:"overdueDays"`
 }
 
@@ -271,20 +278,19 @@ func (s *Service) PendingAcceptance(ctx context.Context, limit int) ([]PendingAc
 	if limit <= 0 || limit > 50 {
 		limit = 10
 	}
+	standardSum, sumArgs := refx.StandardSumExpr("r")
 	items := make([]PendingAcceptanceItem, 0, limit)
 	err := s.db.WithContext(ctx).Table(refx.TableCleaningTasks+" AS t").
 		Select(`t.id AS task_id, t.code, t.title, t.team_name, t.plan_end_date, t.finished_at,
 			COALESCE(s.code, '') AS segment_code,
 			COALESCE(s.name, '') AS segment_name,
 			COALESCE(s.district, '') AS segment_district,
-			COALESCE(r.record_count, 0) AS record_count,
-			COALESCE(r.sludge_volume, 0) AS sludge_volume_m3`).
+			COUNT(r.id) AS record_count,
+			`+standardSum+` AS standard_sludge_t`, sumArgs...).
 		Joins("LEFT JOIN "+refx.TablePipeSegments+" AS s ON s.id = t.pipe_segment_id").
-		Joins(`LEFT JOIN (
-			SELECT task_id, COUNT(*) AS record_count, SUM(sludge_volume_m3) AS sludge_volume
-			FROM `+refx.TableCleaningRecords+` GROUP BY task_id
-		) AS r ON r.task_id = t.id`).
+		Joins("LEFT JOIN "+refx.TableCleaningRecords+" AS r ON r.task_id = t.id").
 		Where("t.status = ?", cleaningtask.StatusCompleted).
+		Group("t.id").
 		Order("t.finished_at ASC, t.id ASC").
 		Limit(limit).
 		Scan(&items).Error
@@ -294,7 +300,7 @@ func (s *Service) PendingAcceptance(ctx context.Context, limit int) ([]PendingAc
 
 	today := date.Today()
 	for i := range items {
-		items[i].SludgeVolumeM3 = num.Round2(items[i].SludgeVolumeM3)
+		items[i].StandardSludgeT = num.Round2(items[i].StandardSludgeT)
 		if items[i].PlanEndDate.IsZero() {
 			continue
 		}
@@ -307,31 +313,38 @@ func (s *Service) PendingAcceptance(ctx context.Context, limit int) ([]PendingAc
 
 // RecentRecordItem 最近清淤记录。
 type RecentRecordItem struct {
-	RecordID       uint      `json:"recordId"`
-	Code           string    `json:"code"`
-	CleanedAt      date.Date `json:"cleanedAt"`
-	TaskID         uint      `json:"taskId"`
-	TaskCode       string    `json:"taskCode"`
-	TaskTitle      string    `json:"taskTitle"`
-	SegmentCode    string    `json:"segmentCode"`
-	SegmentName    string    `json:"segmentName"`
-	TeamName       string    `json:"teamName"`
-	RecorderName   string    `json:"recorderName"`
-	LengthM        float64   `json:"lengthM"`
-	SludgeVolumeM3 float64   `json:"sludgeVolumeM3"`
+	RecordID      uint      `json:"recordId"`
+	Code          string    `json:"code"`
+	CleanedAt     date.Date `json:"cleanedAt"`
+	TaskID        uint      `json:"taskId"`
+	TaskCode      string    `json:"taskCode"`
+	TaskTitle     string    `json:"taskTitle"`
+	SegmentCode   string    `json:"segmentCode"`
+	SegmentName   string    `json:"segmentName"`
+	TeamName      string    `json:"teamName"`
+	RecorderName  string    `json:"recorderName"`
+	LengthM       float64   `json:"lengthM"`
+	SludgeAmount  float64   `json:"sludgeAmount"`
+	SludgeCaliber string    `json:"sludgeCaliber"`
+	StandardT     float64   `json:"standardT"`
 }
 
-// RecentRecords 最近录入的清淤记录。
+// RecentRecords 最近录入的清淤记录（带原始值与折算干重）。
 func (s *Service) RecentRecords(ctx context.Context, limit int) ([]RecentRecordItem, error) {
 	if limit <= 0 || limit > 50 {
 		limit = 10
 	}
+	perRecord, perArgs := refx.StandardPerRecordExpr("r")
 	items := make([]RecentRecordItem, 0, limit)
-	err := s.db.WithContext(ctx).Table(refx.TableCleaningRecords + " AS r").
-		Select(`r.id AS record_id, r.code, r.cleaned_at, r.length_m, r.sludge_volume_m3, r.recorder_name,
+	err := s.db.WithContext(ctx).Table(refx.TableCleaningRecords+" AS r").
+		Select(`r.id AS record_id, r.code, r.cleaned_at, r.length_m,
+			r.`+refx.RawAmountColumn()+` AS sludge_amount,
+			r.`+refx.RawCaliberColumn()+` AS sludge_caliber,
+			`+perRecord+` AS standard_t,
+			r.recorder_name,
 			t.id AS task_id, t.code AS task_code, t.title AS task_title, t.team_name,
 			COALESCE(s.code, '') AS segment_code,
-			COALESCE(s.name, '') AS segment_name`).
+			COALESCE(s.name, '') AS segment_name`, perArgs...).
 		Joins("INNER JOIN " + refx.TableCleaningTasks + " AS t ON t.id = r.task_id").
 		Joins("LEFT JOIN " + refx.TablePipeSegments + " AS s ON s.id = t.pipe_segment_id").
 		Order("r.cleaned_at DESC, r.id DESC").

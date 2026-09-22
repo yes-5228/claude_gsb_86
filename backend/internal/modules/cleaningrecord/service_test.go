@@ -8,6 +8,7 @@ import (
 	"github.com/drainage/desilting/internal/modules/cleaningrecord"
 	"github.com/drainage/desilting/internal/modules/cleaningtask"
 	"github.com/drainage/desilting/internal/shared/date"
+	"github.com/drainage/desilting/internal/shared/sludge"
 	"github.com/drainage/desilting/internal/testsupport"
 )
 
@@ -16,7 +17,8 @@ func recordRequest(taskID uint) cleaningrecord.SaveRequest {
 		TaskID:         taskID,
 		CleanedAt:      date.Today().AddDays(-1),
 		LengthM:        80,
-		SludgeVolumeM3: 12.5,
+		SludgeAmount:   12.5,
+		SludgeCaliber:  sludge.CaliberM3,
 		WaterVolumeM3:  40,
 		PersonnelCount: 6,
 		Method:         cleaningtask.MethodHighPressure,
@@ -63,7 +65,7 @@ func TestUpdateRecordBlockedWhenTaskCompleted(t *testing.T) {
 	testsupport.RequireNoError(t, ignoreTask(fixture.Tasks.Complete(context.Background(), task.ID)))
 
 	request := recordRequest(task.ID)
-	request.SludgeVolumeM3 = 20
+	request.SludgeAmount = 20
 	_, err := fixture.Records.Update(context.Background(), record.ID, request)
 	testsupport.RequireAppError(t, err, httpx.CodeInvalidState)
 }
@@ -106,8 +108,12 @@ func TestRecordTotalsAggregateByTask(t *testing.T) {
 	if totals.RecordCount != 2 {
 		t.Fatalf("期望记录条数 2，实际 %d", totals.RecordCount)
 	}
-	if totals.SludgeVolumeM3 != 25 {
-		t.Fatalf("期望清淤量合计 25，实际 %v", totals.SludgeVolumeM3)
+	// 统一口径为干重 t：25 m³ × 1.40（密度）× 0.40（干湿系数）= 14.00 t
+	if totals.StandardSludgeT != 14 {
+		t.Fatalf("期望折算干重合计 14 t，实际 %v", totals.StandardSludgeT)
+	}
+	if len(totals.RawAmounts) != 1 || totals.RawAmounts[0].Caliber != sludge.CaliberM3 || totals.RawAmounts[0].Amount != 25 {
+		t.Fatalf("期望原始口径合计 m³ 25，实际 %+v", totals.RawAmounts)
 	}
 	if totals.CleanedLengthM != 200 {
 		t.Fatalf("期望清淤长度合计 200，实际 %v", totals.CleanedLengthM)

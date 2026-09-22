@@ -1,6 +1,7 @@
 // 清淤记录录入 / 编辑表单。
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { conversionApi } from '../../api/conversion';
 import { recordApi } from '../../api/records';
 import { taskApi } from '../../api/tasks';
 import { FormField } from '../../components/FormField';
@@ -11,15 +12,16 @@ import { useToast } from '../../components/Toast';
 import { useAsync } from '../../hooks/useAsync';
 import { useForm, type FormErrors } from '../../hooks/useForm';
 import { useMeta } from '../../providers/MetaProvider';
-import type { CleaningRecord, RecordPayload } from '../../types/domain';
-import { isDateString, today } from '../../utils/format';
+import type { CleaningRecord, RecordPayload, SludgeCaliber } from '../../types/domain';
+import { formatTonnage, isDateString, today } from '../../utils/format';
 import { optionLabel } from '../../utils/options';
 
 interface RecordFormValues {
   taskId: string;
   cleanedAt: string;
   lengthM: string;
-  sludgeVolumeM3: string;
+  sludgeAmount: string;
+  sludgeCaliber: SludgeCaliber;
   waterVolumeM3: string;
   personnelCount: string;
   method: string;
@@ -37,7 +39,8 @@ function emptyForm(taskId = ''): RecordFormValues {
     taskId,
     cleanedAt: today(),
     lengthM: '',
-    sludgeVolumeM3: '',
+    sludgeAmount: '',
+    sludgeCaliber: 'm3',
     waterVolumeM3: '',
     personnelCount: '',
     method: '',
@@ -56,7 +59,8 @@ function toFormValues(record: CleaningRecord): RecordFormValues {
     taskId: String(record.taskId),
     cleanedAt: record.cleanedAt ?? '',
     lengthM: String(record.lengthM),
-    sludgeVolumeM3: String(record.sludgeVolumeM3),
+    sludgeAmount: String(record.sludgeAmount),
+    sludgeCaliber: record.sludgeCaliber,
     waterVolumeM3: String(record.waterVolumeM3),
     personnelCount: String(record.personnelCount),
     method: record.method,
@@ -75,7 +79,8 @@ function toPayload(values: RecordFormValues): RecordPayload {
     taskId: Number(values.taskId),
     cleanedAt: values.cleanedAt,
     lengthM: Number(values.lengthM),
-    sludgeVolumeM3: Number(values.sludgeVolumeM3),
+    sludgeAmount: Number(values.sludgeAmount),
+    sludgeCaliber: values.sludgeCaliber,
     waterVolumeM3: values.waterVolumeM3 === '' ? 0 : Number(values.waterVolumeM3),
     personnelCount: Number(values.personnelCount),
     method: values.method as RecordPayload['method'],
@@ -99,16 +104,19 @@ function validate(values: RecordFormValues): FormErrors<RecordFormValues> {
   } else if (!isDateString(values.cleanedAt)) {
     errors.cleanedAt = '清淤日期格式应为 YYYY-MM-DD';
   } else if (values.cleanedAt > today()) {
-    errors.cleanedAt = '清淤日期不能晚于今天';
+    errors.cleanedAt = '清淤日期不能晚于今天（跨月补录请选择实际作业日期，系统按当日规则折算）';
   }
 
   const length = Number(values.lengthM);
   if (values.lengthM === '' || Number.isNaN(length) || length <= 0 || length > 100000) {
     errors.lengthM = '清淤长度需大于 0 且不超过 100000（m）';
   }
-  const sludge = Number(values.sludgeVolumeM3);
-  if (values.sludgeVolumeM3 === '' || Number.isNaN(sludge) || sludge <= 0 || sludge > 100000) {
-    errors.sludgeVolumeM3 = '清淤量需大于 0 且不超过 100000（m³）';
+  const sludge = Number(values.sludgeAmount);
+  if (values.sludgeAmount === '' || Number.isNaN(sludge) || sludge <= 0 || sludge > 1000000) {
+    errors.sludgeAmount = '清淤量需大于 0 且不超过 1000000';
+  }
+  if (!values.sludgeCaliber) {
+    errors.sludgeCaliber = '请选择计量口径';
   }
   const water = Number(values.waterVolumeM3);
   if (values.waterVolumeM3 === '' || Number.isNaN(water) || water < 0 || water > 100000) {
@@ -138,6 +146,46 @@ export function RecordFormPage() {
 
   const detail = useAsync(() => (isEdit ? recordApi.detail(id) : Promise.resolve(null)), [id, isEdit]);
   const tasks = useAsync(() => taskApi.list({ pageSize: 100 }), []);
+
+  // 实时折算预览：原始值 + 口径 + 清淤日期合法时，按当日生效规则试算干重。
+  const [previewT, setPreviewT] = useState<number | null>(null);
+  const amount = Number(form.values.sludgeAmount);
+  const previewable =
+    form.values.sludgeAmount !== '' &&
+    !Number.isNaN(amount) &&
+    amount > 0 &&
+    isDateString(form.values.cleanedAt) &&
+    form.values.cleanedAt <= today();
+  useEffect(() => {
+    if (!previewable) {
+      setPreviewT(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void conversionApi
+        .preview({
+          amount,
+          caliber: form.values.sludgeCaliber,
+          cleanedAt: form.values.cleanedAt
+        })
+        .then((resp) => {
+          if (!cancelled) {
+            setPreviewT(resp.standardT);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setPreviewT(null);
+          }
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.values.sludgeAmount, form.values.sludgeCaliber, form.values.cleanedAt, previewable]);
 
   useEffect(() => {
     const record = detail.data?.record;
@@ -242,12 +290,39 @@ export function RecordFormPage() {
                 onChange={(event) => form.setValue('lengthM', event.target.value)}
               />
             </FormField>
-            <FormField label="清淤量（m³）" required error={form.errors.sludgeVolumeM3}>
+            <FormField
+              label="清淤量口径"
+              required
+              error={form.errors.sludgeCaliber}
+              hint="体积 m³ / 湿重（湿污泥 t）/ 干重（干污泥 t），按现场实际计量方式选择"
+            >
+              <select
+                className="select"
+                value={form.values.sludgeCaliber}
+                onChange={(event) => form.setValue('sludgeCaliber', event.target.value as SludgeCaliber)}
+              >
+                {(enums?.sludgeCalibers ?? []).map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            <FormField
+              label={`清淤量（${form.values.sludgeCaliber === 'm3' ? 'm³' : 't'}）`}
+              required
+              error={form.errors.sludgeAmount}
+              hint={
+                previewable && previewT !== null
+                  ? `按清淤日期当时生效规则折算为干重 ${formatTonnage(previewT)}（统一口径）`
+                  : '保存原始计量值，折算干重由系统按清淤日期生效规则计算，历史原始值不会被改写'
+              }
+            >
               <input
                 className="input"
                 inputMode="decimal"
-                value={form.values.sludgeVolumeM3}
-                onChange={(event) => form.setValue('sludgeVolumeM3', event.target.value)}
+                value={form.values.sludgeAmount}
+                onChange={(event) => form.setValue('sludgeAmount', event.target.value)}
               />
             </FormField>
             <FormField label="用水量（m³）" required error={form.errors.waterVolumeM3}>

@@ -10,13 +10,14 @@ import { InfoList } from '../../components/InfoList';
 import { Modal } from '../../components/Modal';
 import { PageHeader } from '../../components/PageHeader';
 import { SectionCard } from '../../components/SectionCard';
+import { SludgeValue, StandardWithRaw } from '../../components/SludgeValue';
 import { StatCard } from '../../components/StatCard';
 import { StatusTag } from '../../components/StatusTag';
 import { StateBlock } from '../../components/StateBlock';
 import { useToast } from '../../components/Toast';
 import { useAsync } from '../../hooks/useAsync';
 import type { RecordListItem, TaskAction } from '../../types/domain';
-import { formatDate, formatDateTime, formatLength, formatNumber, formatVolume } from '../../utils/format';
+import { formatDate, formatDateTime, formatLength, formatNumber, formatTonnage } from '../../utils/format';
 
 export function TaskDetailPage() {
   const params = useParams();
@@ -101,11 +102,11 @@ export function TaskDetailPage() {
     { key: 'weather', title: '天气', width: '90px', render: (row) => <StatusTag list="weathers" value={row.weather} /> },
     { key: 'lengthM', title: '清淤长度', width: '110px', align: 'right', render: (row) => formatLength(row.lengthM) },
     {
-      key: 'sludgeVolumeM3',
-      title: '清淤量',
-      width: '110px',
+      key: 'standardT',
+      title: '清淤量（折算干重）',
+      width: '170px',
       align: 'right',
-      render: (row) => formatVolume(row.sludgeVolumeM3)
+      render: (row) => <SludgeValue amount={row.sludgeAmount} caliber={row.sludgeCaliber} standardT={row.standardT} />
     },
     { key: 'personnelCount', title: '作业人数', width: '90px', align: 'right', render: (row) => formatNumber(row.personnelCount, 0) },
     { key: 'recorderName', title: '记录人', width: '100px', render: (row) => row.recorderName || '—' }
@@ -194,7 +195,7 @@ export function TaskDetailPage() {
 
             <SectionCard
               title="清淤记录汇总"
-              subtitle="任务下所有清淤记录的汇总口径"
+              subtitle="统一口径为折算干重（干污泥 t）；下方并列展示各原始口径合计，不做跨口径相加"
               extra={
                 can('start') || can('complete') || can('edit') ? (
                   <Link className="btn btn-primary btn-sm" to={`/records/new?taskId=${id}`}>
@@ -209,10 +210,18 @@ export function TaskDetailPage() {
             >
               <div className="stat-grid">
                 <StatCard label="记录条数" value={formatNumber(totals?.recordCount ?? 0, 0)} tone="primary" />
-                <StatCard label="累计清淤量" value={formatVolume(totals?.sludgeVolumeM3 ?? 0)} />
+                <StatCard label="累计清淤量（折算干重）" value={formatTonnage(totals?.standardSludgeT ?? 0)} />
                 <StatCard label="累计清淤长度" value={formatLength(totals?.cleanedLengthM ?? 0)} />
                 <StatCard label="最近清淤日期" value={formatDate(totals?.latestCleanedAt)} />
               </div>
+              <p className="form-note" style={{ marginTop: 12 }}>
+                原始口径合计：
+                {totals && totals.rawAmounts.length > 0 ? (
+                  <StandardWithRaw standardT={totals.standardSludgeT} rawAmounts={totals.rawAmounts} />
+                ) : (
+                  '暂无记录'
+                )}
+              </p>
             </SectionCard>
 
             <SectionCard title="清淤记录明细" subtitle="该任务下最近 50 条清淤记录">

@@ -14,6 +14,7 @@ import (
 	"github.com/drainage/desilting/internal/shared/date"
 	"github.com/drainage/desilting/internal/shared/option"
 	"github.com/drainage/desilting/internal/shared/refx"
+	"github.com/drainage/desilting/internal/shared/sludge"
 )
 
 // TaskGateway 清淤任务模块对外提供的能力（由 cleaningtask.Service 实现）。
@@ -22,15 +23,42 @@ type TaskGateway interface {
 	EnsureStarted(ctx context.Context, id uint) (*cleaningtask.CleaningTask, error)
 }
 
+// SludgeGateway 清淤量换算能力（由 conversion.Service 实现）。
+type SludgeGateway interface {
+	// StandardT 按清淤日期当时生效的规则把原始值折算为干重（干污泥 t）。
+	StandardT(ctx context.Context, amount float64, caliber string, cleanedAt date.Date) (float64, error)
+}
+
 // Service 清淤记录业务逻辑。
 type Service struct {
-	repo  *Repository
-	tasks TaskGateway
+	repo   *Repository
+	tasks  TaskGateway
+	sludge SludgeGateway
 }
 
 // NewService 构造服务。
-func NewService(repo *Repository, tasks TaskGateway) *Service {
-	return &Service{repo: repo, tasks: tasks}
+func NewService(repo *Repository, tasks TaskGateway, sludge SludgeGateway) *Service {
+	return &Service{repo: repo, tasks: tasks, sludge: sludge}
+}
+
+// decorate 为单条记录填充折算干重。
+func (s *Service) decorate(ctx context.Context, record *CleaningRecord) error {
+	standard, err := s.sludge.StandardT(ctx, record.SludgeAmount, record.SludgeCaliber, record.CleanedAt)
+	if err != nil {
+		return httpx.WrapInternal("折算清淤量失败", err)
+	}
+	record.StandardT = standard
+	return nil
+}
+
+// decorateAll 批量填充折算干重。
+func (s *Service) decorateAll(ctx context.Context, records []CleaningRecord) error {
+	for i := range records {
+		if err := s.decorate(ctx, &records[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Create 录入清淤记录。首次录入时会把任务从"待开工"推进到"清淤中"。
@@ -50,6 +78,9 @@ func (s *Service) Create(ctx context.Context, req SaveRequest) (*CleaningRecord,
 		record.Code = s.nextCode(ctx, record.CleanedAt)
 		err := s.repo.Create(ctx, record)
 		if err == nil {
+			if err := s.decorate(ctx, record); err != nil {
+				return nil, err
+			}
 			return record, nil
 		}
 		if !errors.Is(err, gorm.ErrDuplicatedKey) {
@@ -91,6 +122,9 @@ func (s *Service) Update(ctx context.Context, id uint, req SaveRequest) (*Cleani
 	if err := s.repo.Save(ctx, record); err != nil {
 		return nil, httpx.WrapInternal("修改清淤记录失败", err)
 	}
+	if err := s.decorate(ctx, record); err != nil {
+		return nil, err
+	}
 	return record, nil
 }
 
@@ -122,11 +156,14 @@ func (s *Service) Delete(ctx context.Context, id uint) error {
 	return nil
 }
 
-// FindByID 查询清淤记录。
+// FindByID 查询清淤记录（含折算干重）。
 func (s *Service) FindByID(ctx context.Context, id uint) (*CleaningRecord, error) {
 	record, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return nil, notFound(err)
+	}
+	if err := s.decorate(ctx, record); err != nil {
+		return nil, err
 	}
 	return record, nil
 }
@@ -148,6 +185,9 @@ func (s *Service) List(ctx context.Context, query ListQuery) ([]ListItem, int64,
 	}
 	if len(records) == 0 {
 		return []ListItem{}, total, nil
+	}
+	if err := s.decorateAll(ctx, records); err != nil {
+		return nil, 0, err
 	}
 
 	taskIDs := make([]uint, 0, len(records))
@@ -200,6 +240,9 @@ func validate(req SaveRequest) error {
 	if req.CleanedAt.After(date.Today()) {
 		return httpx.Validation("清淤日期不能晚于今天")
 	}
+	if !sludge.HasCaliber(strings.TrimSpace(req.SludgeCaliber)) {
+		return httpx.Validation(fmt.Sprintf("清淤量计量口径只能是：%s", option.Labels(sludge.CaliberOptions())))
+	}
 	method := strings.TrimSpace(req.Method)
 	if method != "" && !option.Has(cleaningtask.MethodOptions(), method) {
 		return httpx.Validation(fmt.Sprintf("清淤方式只能是：%s", option.Labels(cleaningtask.MethodOptions())))
@@ -218,7 +261,8 @@ func apply(req SaveRequest, target *CleaningRecord) {
 	target.TaskID = req.TaskID
 	target.CleanedAt = req.CleanedAt
 	target.LengthM = req.LengthM
-	target.SludgeVolumeM3 = req.SludgeVolumeM3
+	target.SludgeAmount = req.SludgeAmount
+	target.SludgeCaliber = strings.TrimSpace(req.SludgeCaliber)
 	target.WaterVolumeM3 = req.WaterVolumeM3
 	target.PersonnelCount = req.PersonnelCount
 	target.Method = strings.TrimSpace(req.Method)

@@ -18,8 +18,10 @@ import (
 	"github.com/drainage/desilting/internal/modules/acceptance"
 	"github.com/drainage/desilting/internal/modules/cleaningrecord"
 	"github.com/drainage/desilting/internal/modules/cleaningtask"
+	"github.com/drainage/desilting/internal/modules/conversion"
 	"github.com/drainage/desilting/internal/modules/pipesegment"
 	"github.com/drainage/desilting/internal/shared/date"
+	"github.com/drainage/desilting/internal/shared/sludge"
 )
 
 // NewDB 创建仅供本次测试使用的内存 SQLite 数据库，并完成表结构迁移。
@@ -60,15 +62,23 @@ type Services struct {
 	Tasks       *cleaningtask.Service
 	Records     *cleaningrecord.Service
 	Acceptances *acceptance.Service
+	Conversion  *conversion.Service
 }
 
 // NewServices 按生产环境的依赖顺序装配服务。
 func NewServices(db *gorm.DB) *Services {
 	segments := pipesegment.NewService(pipesegment.NewRepository(db))
 	tasks := cleaningtask.NewService(cleaningtask.NewRepository(db), segments)
-	records := cleaningrecord.NewService(cleaningrecord.NewRepository(db), tasks)
+	conversions := conversion.NewService(conversion.NewRepository(db))
+	records := cleaningrecord.NewService(cleaningrecord.NewRepository(db), tasks, conversions)
 	acceptances := acceptance.NewService(acceptance.NewRepository(db), tasks, segments, records)
-	return &Services{Segments: segments, Tasks: tasks, Records: records, Acceptances: acceptances}
+	return &Services{
+		Segments:    segments,
+		Tasks:       tasks,
+		Records:     records,
+		Acceptances: acceptances,
+		Conversion:  conversions,
+	}
 }
 
 // Fixture 内存库 + 服务 + 默认管段的组合，方便测试用例直接使用。
@@ -131,14 +141,15 @@ func (s *Services) CreateTask(t *testing.T, segmentID uint, title string) *clean
 	return task
 }
 
-// CreateRecord 为任务录入一条清淤记录（清淤日期为 1 天前）。
-func (s *Services) CreateRecord(t *testing.T, taskID uint, sludge float64) *cleaningrecord.CleaningRecord {
+// CreateRecord 为任务录入一条清淤记录（清淤日期为 1 天前，原始口径为体积 m³）。
+func (s *Services) CreateRecord(t *testing.T, taskID uint, sludgeAmount float64) *cleaningrecord.CleaningRecord {
 	t.Helper()
 	record, err := s.Records.Create(context.Background(), cleaningrecord.SaveRequest{
 		TaskID:         taskID,
 		CleanedAt:      date.Today().AddDays(-1),
 		LengthM:        100,
-		SludgeVolumeM3: sludge,
+		SludgeAmount:   sludgeAmount,
+		SludgeCaliber:  sludge.CaliberM3,
 		WaterVolumeM3:  30,
 		PersonnelCount: 5,
 		Method:         cleaningtask.MethodHighPressure,

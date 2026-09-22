@@ -11,6 +11,7 @@ import (
 	"github.com/drainage/desilting/internal/modules/cleaningtask"
 	"github.com/drainage/desilting/internal/modules/pipesegment"
 	"github.com/drainage/desilting/internal/shared/date"
+	"github.com/drainage/desilting/internal/shared/sludge"
 )
 
 // Seed 写入演示数据，便于首次启动后直接体验完整业务链路。
@@ -191,7 +192,7 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 			{
 				Code:   "QJ" + today.AddDays(-30).Format("20060102") + "-0001",
 				TaskID: taskID[tasks[0].Code], CleanedAt: today.AddDays(-30),
-				LengthM: 80, SludgeVolumeM3: 12.5, WaterVolumeM3: 45, PersonnelCount: 6,
+				LengthM: 80, SludgeAmount: 12.5, SludgeCaliber: sludge.CaliberM3, WaterVolumeM3: 45, PersonnelCount: 6,
 				Method: cleaningtask.MethodHighPressure, Equipment: "高压清洗车 2 台、吸污车 1 台", Weather: cleaningrecord.WeatherCloudy,
 				SludgeDisposalSite: "城东污泥消纳中心", SafetyMeasures: "设置围挡与警示标志，下井前气体检测并持续通风",
 				ProblemFound: "Y1-10 井段断面淤积约 30%", RecorderName: "李伟",
@@ -199,7 +200,7 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 			{
 				Code:   "QJ" + today.AddDays(-28).Format("20060102") + "-0001",
 				TaskID: taskID[tasks[0].Code], CleanedAt: today.AddDays(-28),
-				LengthM: 76.5, SludgeVolumeM3: 9.8, WaterVolumeM3: 38, PersonnelCount: 5,
+				LengthM: 76.5, SludgeAmount: 9.8, SludgeCaliber: sludge.CaliberM3, WaterVolumeM3: 38, PersonnelCount: 5,
 				Method: cleaningtask.MethodHighPressure, Equipment: "高压清洗车 2 台、吸污车 1 台", Weather: cleaningrecord.WeatherSunny,
 				SludgeDisposalSite: "城东污泥消纳中心", SafetyMeasures: "设置围挡与警示标志，全程气体检测",
 				RecorderName: "李伟", Remark: "复检后管内淤积厚度满足要求",
@@ -207,7 +208,7 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 			{
 				Code:   "QJ" + today.AddDays(-21).Format("20060102") + "-0001",
 				TaskID: taskID[tasks[1].Code], CleanedAt: today.AddDays(-21),
-				LengthM: 320, SludgeVolumeM3: 42.6, WaterVolumeM3: 120, PersonnelCount: 8,
+				LengthM: 320, SludgeAmount: 59.64, SludgeCaliber: sludge.CaliberWetT, WaterVolumeM3: 120, PersonnelCount: 8,
 				Method: cleaningtask.MethodWinch, Equipment: "绞车 2 台、吸污车 2 台", Weather: cleaningrecord.WeatherSunny,
 				SludgeDisposalSite: "城西污泥消纳中心", SafetyMeasures: "分段封堵导流，作业面设置安全通道",
 				ProblemFound: "W2-07 井段沉积砂石较多，清淤两遍后达到要求", RecorderName: "张强",
@@ -215,7 +216,7 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 			{
 				Code:   "QJ" + today.AddDays(-14).Format("20060102") + "-0001",
 				TaskID: taskID[tasks[2].Code], CleanedAt: today.AddDays(-14),
-				LengthM: 60, SludgeVolumeM3: 18.4, WaterVolumeM3: 36, PersonnelCount: 5,
+				LengthM: 60, SludgeAmount: 18.4, SludgeCaliber: sludge.CaliberM3, WaterVolumeM3: 36, PersonnelCount: 5,
 				Method: cleaningtask.MethodHighPressure, Equipment: "高压清洗车 1 台、吸污车 1 台", Weather: cleaningrecord.WeatherLightRain,
 				SludgeDisposalSite: "城西污泥消纳中心", SafetyMeasures: "雨天作业增设防滑措施，专人监护井口",
 				ProblemFound: "W2-12 检查井内清出建筑垃圾约 0.6 m³", RecorderName: "王芳",
@@ -223,7 +224,7 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 			{
 				Code:   "QJ" + today.AddDays(-12).Format("20060102") + "-0001",
 				TaskID: taskID[tasks[2].Code], CleanedAt: today.AddDays(-12),
-				LengthM: 60, SludgeVolumeM3: 15.2, WaterVolumeM3: 30, PersonnelCount: 5,
+				LengthM: 60, SludgeAmount: 8.51, SludgeCaliber: sludge.CaliberDryT, WaterVolumeM3: 30, PersonnelCount: 5,
 				Method: cleaningtask.MethodHighPressure, Equipment: "高压清洗车 1 台、吸污车 1 台", Weather: cleaningrecord.WeatherOvercast,
 				SludgeDisposalSite: "城西污泥消纳中心", SafetyMeasures: "设置围挡与警示标志，全程气体检测",
 				RecorderName: "王芳", Remark: "支管过流能力恢复正常，等待验收",
@@ -231,7 +232,7 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 			{
 				Code:   "QJ" + today.AddDays(-3).Format("20060102") + "-0001",
 				TaskID: taskID[tasks[3].Code], CleanedAt: today.AddDays(-3),
-				LengthM: 110, SludgeVolumeM3: 26.3, WaterVolumeM3: 70, PersonnelCount: 7,
+				LengthM: 110, SludgeAmount: 26.3, SludgeCaliber: sludge.CaliberM3, WaterVolumeM3: 70, PersonnelCount: 7,
 				Method: cleaningtask.MethodGrab, Equipment: "抓斗车 1 台、吸污车 1 台、管道检测机器人 1 台", Weather: cleaningrecord.WeatherOvercast,
 				SludgeDisposalSite: "城南污泥消纳中心", SafetyMeasures: "井口设置三脚架与防坠装置，作业人员佩戴安全带",
 				ProblemFound: "H3-04 井段存在树根侵入，已切除并记录待复检", RecorderName: "陈刚",
@@ -239,7 +240,7 @@ func Seed(db *gorm.DB, logger *slog.Logger) error {
 			{
 				Code:   "QJ" + today.AddDays(-17).Format("20060102") + "-0001",
 				TaskID: taskID[tasks[4].Code], CleanedAt: today.AddDays(-17),
-				LengthM: 88, SludgeVolumeM3: 7.6, WaterVolumeM3: 22, PersonnelCount: 4,
+				LengthM: 88, SludgeAmount: 7.6, SludgeCaliber: sludge.CaliberM3, WaterVolumeM3: 22, PersonnelCount: 4,
 				Method: cleaningtask.MethodManual, Equipment: "人工清掏工具、吸污车 1 台", Weather: cleaningrecord.WeatherCloudy,
 				SludgeDisposalSite: "城东污泥消纳中心", SafetyMeasures: "有限空间作业审批后实施，全程通风检测",
 				ProblemFound: "管段错口约 5 cm，清淤后仍有少量积水", RecorderName: "刘洋",

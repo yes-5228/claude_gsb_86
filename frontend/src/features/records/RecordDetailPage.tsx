@@ -7,6 +7,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { InfoList } from '../../components/InfoList';
 import { PageHeader } from '../../components/PageHeader';
 import { SectionCard } from '../../components/SectionCard';
+import { SludgeValue } from '../../components/SludgeValue';
 import { StatusTag } from '../../components/StatusTag';
 import { StateBlock } from '../../components/StateBlock';
 import { useToast } from '../../components/Toast';
@@ -75,8 +76,10 @@ export function RecordDetailPage() {
           <>
             <div className="alert alert-info">
               <p>
-                修改与删除限制：任务处于「待开工」或「清淤中」时才能调整清淤记录；一旦该记录被验收记录引用，
-                或任务已完工报验，后端将拒绝修改。
+                清淤量同时保留现场原始计量值与折算干重：原始值按计量口径如实记录、不被改写；
+                折算干重（统一口径）按清淤日期当时生效的换算规则计算。任务 / 管段 / 片区 / 看板
+                四层合计均以折算干重为准。修改与删除限制：任务处于「待开工」或「清淤中」时才能调整；
+                一旦该记录被验收引用或任务已完工报验，后端将拒绝修改。
               </p>
             </div>
 
@@ -87,7 +90,11 @@ export function RecordDetailPage() {
                   { label: '清淤日期', value: formatDate(record.cleanedAt) },
                   { label: '清淤方式', value: <StatusTag list="cleaningMethods" value={record.method} /> },
                   { label: '清淤长度', value: formatLength(record.lengthM) },
-                  { label: '清淤量', value: formatVolume(record.sludgeVolumeM3) },
+                  {
+                    label: '清淤量（折算干重）',
+                    value: <SludgeValue amount={record.sludgeAmount} caliber={record.sludgeCaliber} standardT={record.standardT} />
+                  },
+                  { label: '原始计量口径', value: <StatusTag list="sludgeCalibers" value={record.sludgeCaliber} /> },
                   { label: '用水量', value: formatVolume(record.waterVolumeM3) },
                   { label: '作业人数', value: `${formatNumber(record.personnelCount, 0)} 人` },
                   { label: '天气', value: <StatusTag list="weathers" value={record.weather} /> },

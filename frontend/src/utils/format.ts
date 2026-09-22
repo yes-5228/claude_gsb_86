@@ -55,6 +55,22 @@ export function formatVolume(value: number | null | undefined): string {
   return `${formatNumber(value, 2)} m³`;
 }
 
+/** 重量展示（吨）——清淤量统一口径（干污泥吨）。 */
+export function formatTonnage(value: number | null | undefined): string {
+  if (value === null || value === undefined) {
+    return '—';
+  }
+  return `${formatNumber(value, 2)} t`;
+}
+
+/** 按单位展示原始计量值（m³ 或 t）。 */
+export function formatRawAmount(value: number | null | undefined, unit: string): string {
+  if (value === null || value === undefined) {
+    return '—';
+  }
+  return `${formatNumber(value, 2)} ${unit}`;
+}
+
 /**
  * 百分比展示。
  *

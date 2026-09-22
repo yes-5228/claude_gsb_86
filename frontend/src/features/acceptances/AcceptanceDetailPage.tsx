@@ -7,12 +7,13 @@ import { InfoList } from '../../components/InfoList';
 import { Modal } from '../../components/Modal';
 import { PageHeader } from '../../components/PageHeader';
 import { SectionCard } from '../../components/SectionCard';
+import { StandardWithRaw } from '../../components/SludgeValue';
 import { StatCard } from '../../components/StatCard';
 import { StatusTag } from '../../components/StatusTag';
 import { StateBlock } from '../../components/StateBlock';
 import { useToast } from '../../components/Toast';
 import { useAsync } from '../../hooks/useAsync';
-import { formatDate, formatDateTime, formatLength, formatNumber, formatVolume, today } from '../../utils/format';
+import { formatDate, formatDateTime, formatLength, formatNumber, formatTonnage, today } from '../../utils/format';
 
 export function AcceptanceDetailPage() {
   const params = useParams();
@@ -149,10 +150,18 @@ export function AcceptanceDetailPage() {
               <div style={{ height: 16 }} />
               <div className="stat-grid">
                 <StatCard label="清淤记录条数" value={formatNumber(totals?.recordCount ?? 0, 0)} tone="primary" />
-                <StatCard label="累计清淤量" value={formatVolume(totals?.sludgeVolumeM3 ?? 0)} />
+                <StatCard label="累计清淤量（折算干重）" value={formatTonnage(totals?.standardSludgeT ?? 0)} />
                 <StatCard label="累计清淤长度" value={formatLength(totals?.cleanedLengthM ?? 0)} />
                 <StatCard label="最近清淤日期" value={formatDate(totals?.latestCleanedAt)} />
               </div>
+              <p className="form-note" style={{ marginTop: 12 }}>
+                原始口径合计：
+                {totals && totals.rawAmounts.length > 0 ? (
+                  <StandardWithRaw standardT={totals.standardSludgeT} rawAmounts={totals.rawAmounts} />
+                ) : (
+                  '暂无记录'
+                )}
+              </p>
             </SectionCard>
           </>
         ) : null}

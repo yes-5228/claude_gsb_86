@@ -8,6 +8,7 @@ import { DataTable, type Column } from '../../components/DataTable';
 import { PageHeader } from '../../components/PageHeader';
 import { Pagination } from '../../components/Pagination';
 import { SectionCard } from '../../components/SectionCard';
+import { SludgeValue } from '../../components/SludgeValue';
 import { StatusTag } from '../../components/StatusTag';
 import { useToast } from '../../components/Toast';
 import { useAsync } from '../../hooks/useAsync';
@@ -134,16 +135,18 @@ export function RecordListPage() {
     { key: 'weather', title: '天气', width: '90px', render: (row) => <StatusTag list="weathers" value={row.weather} /> },
     { key: 'lengthM', title: '清淤长度', width: '110px', align: 'right', render: (row) => formatLength(row.lengthM) },
     {
-      key: 'sludgeVolumeM3',
-      title: '清淤量 / 用水量',
-      width: '140px',
+      key: 'standardT',
+      title: '清淤量（折算干重）',
+      width: '170px',
       align: 'right',
-      render: (row) => (
-        <>
-          <span className="cell-num">{formatVolume(row.sludgeVolumeM3)}</span>
-          <span className="cell-sub">用水 {formatVolume(row.waterVolumeM3)}</span>
-        </>
-      )
+      render: (row) => <SludgeValue amount={row.sludgeAmount} caliber={row.sludgeCaliber} standardT={row.standardT} />
+    },
+    {
+      key: 'waterVolumeM3',
+      title: '用水量',
+      width: '100px',
+      align: 'right',
+      render: (row) => formatVolume(row.waterVolumeM3)
     },
     {
       key: 'personnelCount',
@@ -176,7 +179,7 @@ export function RecordListPage() {
     <div className="page">
       <PageHeader
         title="清淤记录"
-        description="按次录入现场清淤数据（清淤长度、清淤量、用水量、作业人数与安全措施），首次录入会自动推进任务状态。"
+        description="按次录入现场清淤数据；清淤量支持体积 m³ / 湿重 / 干重三种原始口径，系统按清淤日期生效规则折算为干重，原始值与折算值同时保留。首次录入会自动推进任务状态。"
         actions={
           <button type="button" className="btn btn-primary" onClick={() => navigate('/records/new')}>
             录入清淤记录

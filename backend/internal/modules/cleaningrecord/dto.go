@@ -15,7 +15,8 @@ type SaveRequest struct {
 	TaskID             uint      `json:"taskId" label:"关联任务" validate:"required"`
 	CleanedAt          date.Date `json:"cleanedAt" label:"清淤日期"`
 	LengthM            float64   `json:"lengthM" label:"清淤长度(m)" validate:"gt=0,lte=100000"`
-	SludgeVolumeM3     float64   `json:"sludgeVolumeM3" label:"清淤量(m³)" validate:"gt=0,lte=100000"`
+	SludgeAmount       float64   `json:"sludgeAmount" label:"清淤量" validate:"gt=0,lte=1000000"`
+	SludgeCaliber      string    `json:"sludgeCaliber" label:"清淤量计量口径" validate:"required"`
 	WaterVolumeM3      float64   `json:"waterVolumeM3" label:"用水量(m³)" validate:"gte=0,lte=100000"`
 	PersonnelCount     int       `json:"personnelCount" label:"作业人数" validate:"gt=0,lte=500"`
 	Method             string    `json:"method" label:"清淤方式"`

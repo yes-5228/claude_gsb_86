@@ -12,7 +12,7 @@ import { useAsync } from '../../hooks/useAsync';
 import { useForm, type FormErrors } from '../../hooks/useForm';
 import { useMeta } from '../../providers/MetaProvider';
 import type { AcceptancePayload } from '../../types/domain';
-import { isDateString, today } from '../../utils/format';
+import { formatTonnage, isDateString, today } from '../../utils/format';
 import { optionLabel } from '../../utils/options';
 
 /** 合格验收的最低评分，与后端 passScoreThreshold 保持一致。 */
@@ -229,8 +229,8 @@ export function AcceptanceFormPage() {
               <p>
                 任务 {selectedTask.code} · 管段 {selectedTask.segment?.code ?? '—'}{' '}
                 {selectedTask.segment?.name ?? ''} · 班组 {selectedTask.teamName || '—'} · 清淤记录{' '}
-                {selectedTask.recordTotals?.recordCount ?? 0} 条 · 清淤量{' '}
-                {selectedTask.recordTotals?.sludgeVolumeM3 ?? 0} m³
+                {selectedTask.recordTotals?.recordCount ?? 0} 条 · 折算干重{' '}
+                {formatTonnage(selectedTask.recordTotals?.standardSludgeT ?? 0)}
               </p>
             </div>
           </>
